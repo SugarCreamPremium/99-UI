@@ -1,10 +1,11 @@
--- Version 12.01
+-- Version 12.10
 local Player = {}
 
 function Player.register(section, context)
     local player = context.Player
     local Client = context.Client
     local ReplicatedStorage = context.ReplicatedStorage
+    local tab = context.Tab
     local enabled = false
     local running = false
     local targetHunger = 150
@@ -74,7 +75,6 @@ function Player.register(section, context)
         end)
     end
 
-    local status
     local function loop()
         while enabled do
             if (player:GetAttribute("Hunger") or 100) < targetHunger then
@@ -85,42 +85,23 @@ function Player.register(section, context)
             end
         end
         running = false
-        if not enabled then
-            status.Text = "สถานะ Auto Eat: ปิดอยู่"
-            status.TextColor3 = Color3.fromRGB(150, 150, 150)
-        end
     end
 
     local sectionFrame = rawget(section, "PageContainer")
     if not sectionFrame or not sectionFrame:IsA("GuiObject") then return end
-    status = Instance.new("TextLabel")
-    status.Name = "AutoEatStatus"
-    status.Size = UDim2.new(1, 0, 0, 24)
-    status.BackgroundTransparency = 1
-    status.Font = Enum.Font.Nunito
-    status.Text = "สถานะ Auto Eat: ปิดอยู่"
-    status.TextColor3 = Color3.fromRGB(150, 150, 150)
-    status.TextSize = 13
-    status.TextXAlignment = Enum.TextXAlignment.Left
-    status.LayoutOrder = 99
-    status.Parent = sectionFrame
-
     local function setEnabled(value)
         enabled = value
-        status.Text = enabled and "สถานะ Auto Eat: เปิดอยู่" or "สถานะ Auto Eat: ปิดอยู่"
-        status.TextColor3 = enabled and Color3.fromRGB(0, 120, 212) or Color3.fromRGB(150, 150, 150)
         if enabled and not running then running = true task.spawn(loop) end
     end
 
     section:CreateToggle("กินอาหารอัตโนมัติ", setEnabled)
-    section:CreateInput("กินจนถึงความหิว", "150", function(value)
+    section:CreateInput("กินจนถึงความหิว / 200", "", function(value)
         local nextTarget = math.clamp(tonumber(value) or 150, 1, MAX_HUNGER)
         if nextTarget ~= targetHunger then
             targetHunger = nextTarget
             setEnabled(false)
         end
     end)
-    section:CreateParagraph("สถานะความหิว", "ระบบจะหาและกินอาหารจนถึงค่าที่กำหนด (สูงสุด 200)")
 end
 
 return Player
