@@ -1,3 +1,4 @@
+-- Version 11.56
 local Combat = {}
 
 function Combat.register(section, context)
@@ -47,12 +48,33 @@ function Combat.register(section, context)
             end
         end
         running = false
+        if not enabled then
+            status.Text = "สถานะ Kill Aura: ปิดอยู่"
+            status.TextColor3 = Color3.fromRGB(150, 150, 150)
+        end
     end
 
-    section:CreateToggle("Kill Aura (1 Hit)", function(value)
+    local sectionFrame = rawget(section, "PageContainer")
+    local status = Instance.new("TextLabel")
+    status.Name = "KillAuraStatus"
+    status.Size = UDim2.new(1, 0, 0, 24)
+    status.BackgroundTransparency = 1
+    status.Font = Enum.Font.Nunito
+    status.Text = "สถานะ Kill Aura: ปิดอยู่"
+    status.TextColor3 = Color3.fromRGB(150, 150, 150)
+    status.TextSize = 13
+    status.TextXAlignment = Enum.TextXAlignment.Left
+    status.LayoutOrder = 99
+    status.Parent = sectionFrame
+
+    local function setEnabled(value)
         enabled = value
+        status.Text = enabled and "สถานะ Kill Aura: เปิดอยู่" or "สถานะ Kill Aura: ปิดอยู่"
+        status.TextColor3 = enabled and Color3.fromRGB(0, 120, 212) or Color3.fromRGB(150, 150, 150)
         if enabled and not running then running = true task.spawn(loop) end
-    end)
+    end
+
+    section:CreateToggle("Kill Aura (1 Hit)", setEnabled)
     section:CreateInput("ระยะ (studs)", "80", function(value)
         range = math.clamp(tonumber(value) or MAX_RANGE, 1, MAX_RANGE)
     end)
