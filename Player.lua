@@ -1,4 +1,4 @@
--- Version 11.56
+-- Version 12.01
 local Player = {}
 
 function Player.register(section, context)
@@ -74,6 +74,7 @@ function Player.register(section, context)
         end)
     end
 
+    local status
     local function loop()
         while enabled do
             if (player:GetAttribute("Hunger") or 100) < targetHunger then
@@ -91,7 +92,8 @@ function Player.register(section, context)
     end
 
     local sectionFrame = rawget(section, "PageContainer")
-    local status = Instance.new("TextLabel")
+    if not sectionFrame or not sectionFrame:IsA("GuiObject") then return end
+    status = Instance.new("TextLabel")
     status.Name = "AutoEatStatus"
     status.Size = UDim2.new(1, 0, 0, 24)
     status.BackgroundTransparency = 1
