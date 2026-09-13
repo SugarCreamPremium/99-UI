@@ -1,4 +1,4 @@
--- Version 10.40
+-- Version 11.02
 local Combat = {}
 
 function Combat.register(section, context)
@@ -50,8 +50,22 @@ function Combat.register(section, context)
         running = false
     end
 
+    local sectionFrame = rawget(section, "PageContainer")
+    if not sectionFrame then return end
+    local toggleFrame
+    local function setToggleVisual(value)
+        local toggle = toggleFrame
+        local button = toggle and toggle:FindFirstChild("ToggleButton")
+        local knob = button and button:FindFirstChild("CornerFrame")
+        if button and knob then
+            button.BackgroundColor3 = value and Color3.fromRGB(0, 120, 212) or Color3.fromRGB(150, 150, 150)
+            knob.Position = value and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
+        end
+    end
+
     local function setEnabled(value)
         enabled = value
+        setToggleVisual(enabled)
         if enabled and not running then running = true task.spawn(loop) end
     end
 
@@ -59,8 +73,13 @@ function Combat.register(section, context)
     local createInput = rawget(section, "CreateInput")
     if not createToggle or not createInput then return end
     createToggle(section, "Kill Aura (1 Hit)", setEnabled)
+    toggleFrame = sectionFrame and sectionFrame:FindFirstChild("Toggle")
     createInput(section, "ระยะ (studs) / 80", "", function(value)
-        range = math.clamp(tonumber(value) or MAX_RANGE, 1, MAX_RANGE)
+        local nextRange = math.clamp(tonumber(value) or MAX_RANGE, 1, MAX_RANGE)
+        if nextRange ~= range then
+            range = nextRange
+            setEnabled(false)
+        end
     end)
 end
 
