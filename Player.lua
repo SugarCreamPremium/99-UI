@@ -1,4 +1,4 @@
--- Version 11.35
+-- Version 11.46
 local Player = {}
 
 function Player.register(section, context)
@@ -94,10 +94,9 @@ function Player.register(section, context)
     end
 
     local createToggle = section.CreateToggle
-    local createSlider = tab.CreateSlider
-    if not createToggle or not createSlider then return end
+    if not createToggle or not tab then return end
     createToggle(section, "กินอาหารอัตโนมัติ", setEnabled)
-    createSlider(tab, "กินจนถึงความหิว (พื้นฐาน 100)", 1, MAX_HUNGER, DEFAULT_HUNGER, function(value)
+    tab:CreateSlider("กินจนถึงความหิว (พื้นฐาน 100)", 1, MAX_HUNGER, DEFAULT_HUNGER, function(value)
         targetHunger = math.clamp(value, 1, MAX_HUNGER)
     end)
 end
