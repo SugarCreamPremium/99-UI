@@ -1,4 +1,4 @@
--- Version 9.46
+-- Version 10.04
 local Player = {}
 
 function Player.register(section, context)
@@ -128,13 +128,16 @@ function Player.register(section, context)
         end
     end
 
+    local sectionFrame = rawget(section, "PageContainer")
     local createToggle = section.CreateToggle
-    if not createToggle or not tab then return end
+    if not createToggle or not tab or not sectionFrame then return end
     createToggle(section, "กินอาหารอัตโนมัติ", setEnabled)
     createToggle(section, "โล่ป้องกันอาวุธระยะไกล (10 studs)", setShield)
     tab:CreateSlider("กินจนถึงความหิว (พื้นฐาน 100)", 1, MAX_HUNGER, DEFAULT_HUNGER, function(value)
         targetHunger = math.clamp(value, 1, MAX_HUNGER)
     end)
+    local slider = sectionFrame.Parent:FindFirstChild("Slider")
+    if slider then slider.Parent = sectionFrame end
 end
 
 return Player
