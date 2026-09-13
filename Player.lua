@@ -1,4 +1,4 @@
--- Version 11.30
+-- Version 11.35
 local Player = {}
 
 function Player.register(section, context)
@@ -93,11 +93,11 @@ function Player.register(section, context)
         if enabled and not running then running = true task.spawn(loop) end
     end
 
-    local createToggle = rawget(section, "CreateToggle")
-    local createSlider = rawget(section, "CreateSlider")
+    local createToggle = section.CreateToggle
+    local createSlider = tab.CreateSlider
     if not createToggle or not createSlider then return end
     createToggle(section, "กินอาหารอัตโนมัติ", setEnabled)
-    createSlider(section, "กินจนถึงความหิว (พื้นฐาน 100)", 1, MAX_HUNGER, DEFAULT_HUNGER, function(value)
+    createSlider(tab, "กินจนถึงความหิว (พื้นฐาน 100)", 1, MAX_HUNGER, DEFAULT_HUNGER, function(value)
         targetHunger = math.clamp(value, 1, MAX_HUNGER)
     end)
 end
