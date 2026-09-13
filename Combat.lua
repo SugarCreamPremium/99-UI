@@ -1,4 +1,4 @@
--- Version 11.02
+-- Version 11.06
 local Combat = {}
 
 function Combat.register(section, context)
@@ -78,7 +78,10 @@ function Combat.register(section, context)
         local nextRange = math.clamp(tonumber(value) or MAX_RANGE, 1, MAX_RANGE)
         if nextRange ~= range then
             range = nextRange
-            setEnabled(false)
+            if enabled then
+                local click = toggleFrame and toggleFrame:FindFirstChild("ToggleInvisibleClick")
+                if click then click:Activate() else setEnabled(false) end
+            end
         end
     end)
 end
