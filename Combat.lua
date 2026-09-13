@@ -1,4 +1,4 @@
--- Version 11.51
+-- Version 12.36
 local Combat = {}
 
 function Combat.register(section, context)
@@ -59,11 +59,11 @@ function Combat.register(section, context)
         end
     end
 
-    local createToggle = section.CreateToggle
-    local createSlider = section.CreateSlider
-    if not createToggle or not createSlider then return end
+    local createToggle = rawget(section, "CreateToggle")
+    local tab = context.Tab
+    if not createToggle or not tab then return end
     createToggle(section, "Kill Aura 1 Hit (ต้องถืออาวุธระยะใกล้ด้วย)", setEnabled)
-    createSlider(section, "ระยะ (พื้นฐาน 25 / สูงสุด 80)", 1, MAX_RANGE, DEFAULT_RANGE, function(value)
+    tab:CreateSlider("ระยะ (พื้นฐาน 25 / สูงสุด 80)", 1, MAX_RANGE, DEFAULT_RANGE, function(value)
         range = math.clamp(value, 1, MAX_RANGE)
     end)
 end
