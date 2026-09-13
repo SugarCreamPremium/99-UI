@@ -1,4 +1,4 @@
--- Version 12.10
+-- Version 10.40
 local Player = {}
 
 function Player.register(section, context)
@@ -94,8 +94,11 @@ function Player.register(section, context)
         if enabled and not running then running = true task.spawn(loop) end
     end
 
-    section:CreateToggle("กินอาหารอัตโนมัติ", setEnabled)
-    section:CreateInput("กินจนถึงความหิว / 200", "", function(value)
+    local createToggle = rawget(section, "CreateToggle")
+    local createInput = rawget(section, "CreateInput")
+    if not createToggle or not createInput then return end
+    createToggle(section, "กินอาหารอัตโนมัติ", setEnabled)
+    createInput(section, "กินจนถึงความหิว / 200", "", function(value)
         local nextTarget = math.clamp(tonumber(value) or 150, 1, MAX_HUNGER)
         if nextTarget ~= targetHunger then
             targetHunger = nextTarget
