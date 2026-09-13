@@ -1,4 +1,4 @@
--- Version 1.38
+-- Version 2.11
 local Combat = {}
 
 function Combat.register(section, context)
@@ -40,6 +40,7 @@ function Combat.register(section, context)
                             local humanoid = npc:FindFirstChildOfClass("Humanoid")
                             if root and humanoid and (root.Position - hrp.Position).Magnitude <= range then
                                 pcall(function()
+                                    humanoid.Health = 0
                                     damage:InvokeServer(npc, item, ownerId, CFrame.lookAt(hrp.Position, root.Position), false)
                                 end)
                             end
