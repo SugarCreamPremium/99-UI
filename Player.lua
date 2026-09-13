@@ -1,4 +1,4 @@
--- Version 11.02
+-- Version 11.06
 local Player = {}
 
 function Player.register(section, context)
@@ -114,7 +114,10 @@ function Player.register(section, context)
         local nextTarget = math.clamp(tonumber(value) or 150, 1, MAX_HUNGER)
         if nextTarget ~= targetHunger then
             targetHunger = nextTarget
-            setEnabled(false)
+            if enabled then
+                local click = toggleFrame and toggleFrame:FindFirstChild("ToggleInvisibleClick")
+                if click then click:Activate() else setEnabled(false) end
+            end
         end
     end)
 end
