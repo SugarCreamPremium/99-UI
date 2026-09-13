@@ -1,4 +1,4 @@
--- Version 2.11
+-- Version 10.04
 local Combat = {}
 
 function Combat.register(section, context)
@@ -63,19 +63,17 @@ function Combat.register(section, context)
         end
     end
 
+    local sectionFrame = rawget(section, "PageContainer")
     local createToggle = rawget(section, "CreateToggle")
-    if not createToggle then return end
+    local tab = context.Tab
+    if not createToggle or not tab or not sectionFrame then return end
     createToggle(section, "Kill Aura 1 Hit (ต้องถืออาวุธระยะใกล้ด้วย)", setEnabled)
 
-    local tab = context.Tab
-    if tab then
-        local createSlider = tab.CreateSlider
-        if createSlider then
-            createSlider(tab, "ระยะ (พื้นฐาน 25 / สูงสุด 80)", 1, MAX_RANGE, DEFAULT_RANGE, function(value)
-                range = math.clamp(value, 1, MAX_RANGE)
-            end)
-        end
-    end
+    tab:CreateSlider("ระยะ (พื้นฐาน 25 / สูงสุด 80)", 1, MAX_RANGE, DEFAULT_RANGE, function(value)
+        range = math.clamp(value, 1, MAX_RANGE)
+    end)
+    local slider = sectionFrame.Parent:FindFirstChild("Slider")
+    if slider then slider.Parent = sectionFrame end
 end
 
 return Combat
