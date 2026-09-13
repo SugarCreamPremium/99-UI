@@ -1,4 +1,4 @@
--- Version 12.10
+-- Version 10.40
 local Combat = {}
 
 function Combat.register(section, context)
@@ -55,11 +55,13 @@ function Combat.register(section, context)
         if enabled and not running then running = true task.spawn(loop) end
     end
 
-    section:CreateToggle("Kill Aura (1 Hit)", setEnabled)
-    section:CreateInput("ระยะ (studs) / 80", "", function(value)
+    local createToggle = rawget(section, "CreateToggle")
+    local createInput = rawget(section, "CreateInput")
+    if not createToggle or not createInput then return end
+    createToggle(section, "Kill Aura (1 Hit)", setEnabled)
+    createInput(section, "ระยะ (studs) / 80", "", function(value)
         range = math.clamp(tonumber(value) or MAX_RANGE, 1, MAX_RANGE)
     end)
-    section:CreateParagraph("การใช้งาน", "ถืออาวุธเพื่อเริ่มโจมตีศัตรูในระยะที่กำหนด")
 end
 
 return Combat
