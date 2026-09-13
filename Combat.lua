@@ -1,4 +1,4 @@
--- Version 1.27
+-- Version 1.38
 local Combat = {}
 
 function Combat.register(section, context)
@@ -35,11 +35,14 @@ function Combat.register(section, context)
                 local characters = workspace:FindFirstChild("Characters")
                 if characters then
                     for _, npc in ipairs(characters:GetChildren()) do
-                        local root = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart
-                        if attackable(npc) and root and (root.Position - hrp.Position).Magnitude <= range then
-                            pcall(function()
-                                damage:InvokeServer(npc, item, ownerId, CFrame.lookAt(hrp.Position, root.Position), false)
-                            end)
+                        if not npc:GetAttribute("NotAttackable") and not npc:GetAttribute("Tamed") then
+                            local root = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart
+                            local humanoid = npc:FindFirstChildOfClass("Humanoid")
+                            if root and humanoid and (root.Position - hrp.Position).Magnitude <= range then
+                                pcall(function()
+                                    damage:InvokeServer(npc, item, ownerId, CFrame.lookAt(hrp.Position, root.Position), false)
+                                end)
+                            end
                         end
                     end
                 end
