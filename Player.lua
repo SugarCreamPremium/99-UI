@@ -1,4 +1,4 @@
--- Version 11.17
+-- Version 11.21
 local Player = {}
 
 function Player.register(section, context)
@@ -97,7 +97,7 @@ function Player.register(section, context)
     local createInput = rawget(section, "CreateInput")
     if not createToggle or not createInput then return end
     createToggle(section, "กินอาหารอัตโนมัติ", setEnabled)
-    createInput(section, "กินจนถึงความหิว / 200 (พื้นฐาน 100)", "", function(value)
+    createInput(section, "กินจนถึงความหิว / 200 (พื้นฐาน 100)", "100", function(value)
         targetHunger = math.clamp(tonumber(value) or DEFAULT_HUNGER, 1, MAX_HUNGER)
     end)
 end
