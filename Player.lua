@@ -1,11 +1,12 @@
--- Version 10.17
+-- Version 10.33
 local Player = {}
 
-function Player.register(section, context)
+function Player.register(context)
     local player = context.Player
     local Client = context.Client
     local ReplicatedStorage = context.ReplicatedStorage
     local tab = context.Tab
+    local section = tab:CreateSection("กินอาหารอัตโนมัติ")
     local enabled = false
     local running = false
     local targetHunger = 100
