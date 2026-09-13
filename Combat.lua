@@ -1,4 +1,4 @@
--- Version 1.02
+-- Version 1.15
 local Combat = {}
 
 function Combat.register(section, context)
@@ -43,7 +43,7 @@ function Combat.register(section, context)
                         end
                     end
                 end
-                task.wait(0.18)
+                task.wait(0.1)
             else
                 task.wait(0.5)
             end
@@ -65,12 +65,9 @@ function Combat.register(section, context)
 
     local tab = context.Tab
     if tab then
-        local createSlider = rawget(tab, "CreateSlider")
-        if createSlider then
-            createSlider(tab, "ระยะ (พื้นฐาน 25 / สูงสุด 80)", 1, MAX_RANGE, DEFAULT_RANGE, function(value)
-                range = math.clamp(value, 1, MAX_RANGE)
-            end)
-        end
+        tab:CreateSlider("ระยะ (พื้นฐาน 25 / สูงสุด 80)", 1, MAX_RANGE, DEFAULT_RANGE, function(value)
+            range = math.clamp(value, 1, MAX_RANGE)
+        end)
     end
 end
 
