@@ -1,4 +1,4 @@
--- Version 11.17
+-- Version 11.21
 local Combat = {}
 
 function Combat.register(section, context)
@@ -63,7 +63,7 @@ function Combat.register(section, context)
     local createInput = rawget(section, "CreateInput")
     if not createToggle or not createInput then return end
     createToggle(section, "Kill Aura (1 Hit)", setEnabled)
-    createInput(section, "ระยะ (studs) / 80 (พื้นฐาน 25)", "", function(value)
+    createInput(section, "ระยะ (studs) / 80 (พื้นฐาน 25)", "25", function(value)
         range = math.clamp(tonumber(value) or DEFAULT_RANGE, 1, MAX_RANGE)
     end)
 end
