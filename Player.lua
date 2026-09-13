@@ -1,4 +1,4 @@
--- Version 11.21
+-- Version 11.30
 local Player = {}
 
 function Player.register(section, context)
@@ -94,11 +94,11 @@ function Player.register(section, context)
     end
 
     local createToggle = rawget(section, "CreateToggle")
-    local createInput = rawget(section, "CreateInput")
-    if not createToggle or not createInput then return end
+    local createSlider = rawget(section, "CreateSlider")
+    if not createToggle or not createSlider then return end
     createToggle(section, "กินอาหารอัตโนมัติ", setEnabled)
-    createInput(section, "กินจนถึงความหิว / 200 (พื้นฐาน 100)", "100", function(value)
-        targetHunger = math.clamp(tonumber(value) or DEFAULT_HUNGER, 1, MAX_HUNGER)
+    createSlider(section, "กินจนถึงความหิว (พื้นฐาน 100)", 1, MAX_HUNGER, DEFAULT_HUNGER, function(value)
+        targetHunger = math.clamp(value, 1, MAX_HUNGER)
     end)
 end
 
