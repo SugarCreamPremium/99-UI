@@ -1,4 +1,4 @@
--- Version 11.46
+-- Version 9.46
 local Player = {}
 
 function Player.register(section, context)
@@ -93,9 +93,45 @@ function Player.register(section, context)
         if enabled and not running then running = true task.spawn(loop) end
     end
 
+    local shieldPart = nil
+    local function setShield(value)
+        local hrp = getHRP()
+        if value and hrp then
+            if not shieldPart then
+                shieldPart = Instance.new("Part")
+                shieldPart.Name = "ProjectileShield"
+                shieldPart.Size = Vector3.new(20, 20, 20)
+                shieldPart.Transparency = 1
+                shieldPart.CanCollide = false
+                shieldPart.Anchored = true
+                shieldPart.Material = Enum.Material.ForceField
+                shieldPart.Color = Color3.fromRGB(0, 170, 255)
+                shieldPart.Parent = workspace
+            end
+            task.spawn(function()
+                while shieldPart and shieldPart.Parent do
+                    local currentHRP = getHRP()
+                    if currentHRP then
+                        shieldPart.CFrame = currentHRP.CFrame
+                        for _, obj in ipairs(workspace:GetDescendants()) do
+                            if obj:IsA("BasePart") and obj:FindFirstAncestor("Projectiles") and (obj.Position - currentHRP.Position).Magnitude <= 10 then
+                                pcall(function() obj:Destroy() end)
+                            end
+                        end
+                    end
+                    task.wait(0.05)
+                end
+            end)
+        elseif shieldPart then
+            shieldPart:Destroy()
+            shieldPart = nil
+        end
+    end
+
     local createToggle = section.CreateToggle
     if not createToggle or not tab then return end
     createToggle(section, "กินอาหารอัตโนมัติ", setEnabled)
+    createToggle(section, "โล่ป้องกันอาวุธระยะไกล (10 studs)", setShield)
     tab:CreateSlider("กินจนถึงความหิว (พื้นฐาน 100)", 1, MAX_HUNGER, DEFAULT_HUNGER, function(value)
         targetHunger = math.clamp(value, 1, MAX_HUNGER)
     end)
