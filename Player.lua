@@ -1,4 +1,4 @@
--- Version 10.40
+-- Version 11.02
 local Player = {}
 
 function Player.register(section, context)
@@ -89,8 +89,19 @@ function Player.register(section, context)
 
     local sectionFrame = rawget(section, "PageContainer")
     if not sectionFrame or not sectionFrame:IsA("GuiObject") then return end
+    local toggleFrame
+    local function setToggleVisual(value)
+        local button = toggleFrame and toggleFrame:FindFirstChild("ToggleButton")
+        local knob = button and button:FindFirstChild("CornerFrame")
+        if button and knob then
+            button.BackgroundColor3 = value and Color3.fromRGB(0, 120, 212) or Color3.fromRGB(150, 150, 150)
+            knob.Position = value and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
+        end
+    end
+
     local function setEnabled(value)
         enabled = value
+        setToggleVisual(enabled)
         if enabled and not running then running = true task.spawn(loop) end
     end
 
@@ -98,6 +109,7 @@ function Player.register(section, context)
     local createInput = rawget(section, "CreateInput")
     if not createToggle or not createInput then return end
     createToggle(section, "กินอาหารอัตโนมัติ", setEnabled)
+    toggleFrame = sectionFrame:FindFirstChild("Toggle")
     createInput(section, "กินจนถึงความหิว / 200", "", function(value)
         local nextTarget = math.clamp(tonumber(value) or 150, 1, MAX_HUNGER)
         if nextTarget ~= targetHunger then
