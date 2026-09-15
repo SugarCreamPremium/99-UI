@@ -1,4 +1,4 @@
--- Version 8.54
+-- Version 9.15
 local Campfire = {}
 
 function Campfire.register(context)
@@ -60,6 +60,7 @@ function Campfire.register(context)
         "Lost Child3",
         "Lost Child4",
     }
+    local LOST_CHILD_TOTAL = #LOST_CHILD_NAMES
 
     local function kidAlreadyRescued(c)
         if c:GetAttribute("Lost") == false then return true end
@@ -80,6 +81,13 @@ function Campfire.register(context)
             if c and not kidAlreadyRescued(c) then
                 return false
             end
+        end
+        return true
+    end
+
+    local function allChildrenCollected(collectedChildren)
+        for _, name in ipairs(LOST_CHILD_NAMES) do
+            if not collectedChildren[name] then return false end
         end
         return true
     end
@@ -339,7 +347,7 @@ function Campfire.register(context)
 
         local firePos = firePart.Position
 
-        -- ตรวจสอบก่อนเริ่ม: ถ้าเลเวลถึง 7 แล้ว และ ช่วยเด็กครบแล้ว -> ไม่ต้องทำอะไร
+        -- ตรวจสอบก่อนเริ่ม: ถ้าเลเวลถึง 7 แล้ว และ ช่วยเด็กครบทั้ง 4 คนแล้ว -> ไม่ต้องทำอะไร
         if getCurrentLevel() >= maxLevel and areAllChildrenRescued() then
             hrp.CFrame = CFrame.new(firePos + Vector3.new(5, 3, 0))
             return
@@ -372,9 +380,9 @@ function Campfire.register(context)
 
             local airHeight = 20
 
-            -- บินดึงเชื้อเพลิงรอบแคมป์ไฟ พร้อมช่วยเด็ก
+            -- 1. บินดึงเชื้อเพลิงรอบแคมป์ไฟ พร้อมช่วยเด็ก
             for radius = 20, 1000, 40 do
-                if getCurrentLevel() >= maxLevel and areAllChildrenRescued() then break end
+                if getCurrentLevel() >= maxLevel and allChildrenCollected(collectedChildren) then break end
 
                 local steps = 50 + math.floor(radius / 40) * 5
                 local circumference = 2 * math.pi * radius
@@ -382,7 +390,7 @@ function Campfire.register(context)
                 local duration = circumference / speed
 
                 for i = 0, steps do
-                    if getCurrentLevel() >= maxLevel and areAllChildrenRescued() then break end
+                    if getCurrentLevel() >= maxLevel and allChildrenCollected(collectedChildren) then break end
 
                     local currentHRP = getHRP()
                     if not currentHRP then break end
@@ -411,11 +419,37 @@ function Campfire.register(context)
                 end
             end
 
-            -- ปล่อยเด็กที่เก็บได้กลับกองไฟ
+            -- 2. ถ้าเก็บเด็กยังไม่ครบ 4 คน ให้บินหาใหม่อีกรอบแบบละเอียดและกว้างขึ้น (Extended Range ตามแบบ MainScript)
+            if not allChildrenCollected(collectedChildren) then
+                for radius = 20, 1500, 40 do
+                    local steps = 60
+                    local circumference = 2 * math.pi * radius
+                    local speed = 1000
+                    local duration = circumference / speed
+
+                    for i = 0, steps do
+                        local angle = (i / steps) * math.pi * 2
+                        local circlePos = firePos + Vector3.new(math.cos(angle) * radius, airHeight, math.sin(angle) * radius)
+                        local curHRP = getHRP()
+                        if curHRP then
+                            curHRP.CFrame = CFrame.new(circlePos)
+                        end
+                        platform.Position = circlePos - Vector3.new(0, 3, 0)
+
+                        collectLostChildren(collectedChildren)
+                        task.wait(duration / steps)
+                    end
+
+                    -- เช็คหลังครบรอบเท่านั้น
+                    if allChildrenCollected(collectedChildren) then break end
+                end
+            end
+
+            -- ปล่อยเด็กทั้งหมดที่เก็บได้กลับกองไฟ
             dropAllLostChildren(firePos, collectedChildren)
             task.wait(0.5)
 
-            -- บินตัดไม้ต่อถ้าเลเวลยังไม่ถึง 7
+            -- 3. บินตัดไม้ต่อถ้าเลเวลกองไฟยังไม่ถึง 7
             if getCurrentLevel() < maxLevel then
                 local trees = getTreesSorted(firePos)
                 local damageEvent = ReplicatedStorage:FindFirstChild("RemoteEvents")
