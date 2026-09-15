@@ -1,4 +1,4 @@
--- Version 10.56
+-- Version 8.02
 local Combat = {}
 
 function Combat.register(context)
@@ -72,6 +72,12 @@ function Combat.register(context)
     tab:CreateSlider("ระยะ (ค่าพื้นฐาน 25)", 1, MAX_RANGE, DEFAULT_RANGE, function(value)
         range = math.clamp(value, 1, MAX_RANGE)
     end)
+
+    local sectionFrame = rawget(section, "PageContainer")
+    local slider = sectionFrame and sectionFrame.Parent:FindFirstChild("Slider")
+    if slider then
+        slider.Parent = sectionFrame
+    end
 end
 
 return Combat
