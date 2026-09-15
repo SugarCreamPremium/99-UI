@@ -1,4 +1,4 @@
--- Version 8.42
+-- Version 8.52
 local Campfire = {}
 
 function Campfire.register(context)
@@ -8,7 +8,7 @@ function Campfire.register(context)
     local ReplicatedStorage = context.ReplicatedStorage
     if not tab then return end
 
-    local section = tab:CreateSection("อัพเกรดกองไฟอัตโนมัติ")
+    local section = tab:CreateSection("อัพเกรดกองไฟและช่วยเหลือเด็ก")
 
     local function getHRP()
         local char = player.Character
@@ -51,6 +51,193 @@ function Campfire.register(context)
         return tonumber(levelMatch) or 1
     end
 
+    -- ============================================
+    -- LOST CHILDREN HELPERS
+    -- ============================================
+    local LOST_CHILD_NAMES = {
+        "Lost Child",
+        "Lost Child2",
+        "Lost Child3",
+        "Lost Child4",
+    }
+
+    local function kidAlreadyRescued(c)
+        if c:GetAttribute("Lost") == false then return true end
+        local interaction = c:GetAttribute("Interaction")
+        if type(interaction) == "string" and string.sub(interaction, 1, 8) == "Befriend" then return true end
+        return c:GetAttribute("Rescued") == true or c:GetAttribute("Friending") == true
+    end
+
+    local function kidStillLost(c)
+        return c:GetAttribute("Lost") == true and c:GetAttribute("Interaction") == "CanBeBagged"
+    end
+
+    local function areAllChildrenRescued()
+        local chars = workspace:FindFirstChild("Characters")
+        if not chars then return true end
+        for _, name in ipairs(LOST_CHILD_NAMES) do
+            local c = chars:FindFirstChild(name)
+            if c and not kidAlreadyRescued(c) then
+                return false
+            end
+        end
+        return true
+    end
+
+    local function collectLostChildren(collectedChildren)
+        local chars = workspace:FindFirstChild("Characters")
+        if not chars then return end
+
+        for _, name in ipairs(LOST_CHILD_NAMES) do
+            if not collectedChildren[name] then
+                local c = chars:FindFirstChild(name)
+                if c then
+                    if kidAlreadyRescued(c) then
+                        collectedChildren[name] = true
+                    elseif kidStillLost(c) then
+                        local head = c:FindFirstChild("Head")
+                        local attachment = head and head:FindFirstChild("ProximityAttachment")
+                        local prompt = attachment and attachment:FindFirstChild("ProximityInteraction")
+                        if prompt then
+                            local attempts = 0
+                            while chars:FindFirstChild(name) and kidStillLost(c) and attempts < 10 do
+                                local hrp = getHRP()
+                                local root2 = c:FindFirstChild("HumanoidRootPart") or c.PrimaryPart
+                                if hrp and root2 then
+                                    hrp.CFrame = CFrame.new(root2.Position + Vector3.new(0, 2, 0))
+                                    task.wait(0.1)
+                                    if prompt.Enabled then
+                                        pcall(function()
+                                            if typeof(fireproximityprompt) == "function" then
+                                                fireproximityprompt(prompt, 0, true)
+                                            else
+                                                prompt.HoldDuration = 0
+                                                prompt:InputHoldBegin()
+                                                task.wait(0.05)
+                                                prompt:InputHoldEnd()
+                                            end
+                                        end)
+                                    end
+                                end
+                                attempts = attempts + 1
+                                task.wait(0.2)
+                            end
+                            if not chars:FindFirstChild(name) then
+                                collectedChildren[name] = true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    local function dropAllLostChildren(firePos, collectedChildren)
+        local inv = player:FindFirstChild("Inventory")
+        local oldSack = inv and inv:FindFirstChild("Old Sack")
+        if not oldSack then return end
+
+        local hrp = getHRP()
+        if not hrp then return end
+
+        local targetPos = firePos + Vector3.new(0, 10, 0)
+        pcall(function() hrp.CFrame = CFrame.new(targetPos) end)
+        task.wait(0.5)
+
+        if Client and Client.InventoryHandler then
+            pcall(function() Client.InventoryHandler.RequestEquipItem(oldSack) end)
+            task.wait(0.3)
+        end
+
+        local events = ReplicatedStorage:FindFirstChild("RemoteEvents")
+        local BagDrop = events and events:FindFirstChild("RequestBagDropItem")
+        if not BagDrop then return end
+
+        for name in pairs(collectedChildren) do
+            local bag = player:FindFirstChild("ItemBag")
+            local bagChild = bag and bag:FindFirstChild(name)
+            if bagChild then
+                pcall(function()
+                    BagDrop:FireServer(oldSack, bagChild, false)
+                end)
+                task.wait(0.2)
+            end
+        end
+    end
+
+    -- ============================================
+    -- FLOATING (AlignPosition + AlignOrientation)
+    -- ============================================
+    local floatAP = nil
+    local floatAO = nil
+    local followThread = nil
+
+    local function ensureFloating(targetPos)
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not (char and hrp) then return end
+
+        if not hrp:FindFirstChild("FloatAttachment") then
+            local att = Instance.new("Attachment")
+            att.Name = "FloatAttachment"
+            att.Parent = hrp
+        end
+
+        if not hrp:FindFirstChild("FloatAlignPosition") then
+            floatAP = Instance.new("AlignPosition")
+            floatAP.Name = "FloatAlignPosition"
+            floatAP.Mode = Enum.PositionAlignmentMode.OneAttachment
+            floatAP.Attachment0 = hrp.FloatAttachment
+            floatAP.MaxForce = 5000
+            floatAP.Responsiveness = 50
+            floatAP.Position = targetPos or hrp.Position
+            floatAP.Parent = hrp
+        elseif targetPos then
+            floatAP.Position = targetPos
+        end
+
+        if not hrp:FindFirstChild("FloatAlignOrientation") then
+            floatAO = Instance.new("AlignOrientation")
+            floatAO.Name = "FloatAlignOrientation"
+            floatAO.Mode = Enum.OrientationAlignmentMode.OneAttachment
+            floatAO.Attachment0 = hrp.FloatAttachment
+            floatAO.MaxTorque = 5000
+            floatAO.Responsiveness = 50
+            floatAO.CFrame = hrp.CFrame
+            floatAO.Parent = hrp
+        end
+
+        if not followThread then
+            followThread = task.spawn(function()
+                while floatAP and floatAP.Parent do
+                    local c = player.Character
+                    local h = c and c:FindFirstChild("HumanoidRootPart")
+                    local hum = c and c:FindFirstChildOfClass("Humanoid")
+                    if not h or not hum or hum.Health <= 0 then
+                        break
+                    end
+                    floatAP.Position = h.Position
+                    task.wait(0.1)
+                end
+                followThread = nil
+            end)
+        end
+    end
+
+    local function disableFloating()
+        if followThread then
+            pcall(function() task.cancel(followThread) end)
+            followThread = nil
+        end
+        pcall(function() if floatAP then floatAP:Destroy() end end)
+        pcall(function() if floatAO then floatAO:Destroy() end end)
+        floatAP = nil
+        floatAO = nil
+    end
+
+    -- ============================================
+    -- AXE & TREE HANDLING
+    -- ============================================
     local function getBestAxe()
         local inv = player:FindFirstChild("Inventory")
         if not inv then return nil end
@@ -152,8 +339,8 @@ function Campfire.register(context)
 
         local firePos = firePart.Position
 
-        -- 1. เช็คก่อนเริ่ม: ถ้าเลเวล 7 หรือ Max แล้ว วาร์ปกลับกองไฟทันที
-        if getCurrentLevel() >= maxLevel then
+        -- ตรวจสอบก่อนเริ่ม: ถ้าเลเวลถึง 7 แล้ว และ ช่วยเด็กครบแล้ว -> ไม่ต้องทำอะไร
+        if getCurrentLevel() >= maxLevel and areAllChildrenRescued() then
             hrp.CFrame = CFrame.new(firePos + Vector3.new(5, 3, 0))
             return
         end
@@ -161,7 +348,6 @@ function Campfire.register(context)
         isWorking = true
 
         task.spawn(function()
-            -- หาขวานและถือทันทีก่อนเริ่ม
             local bestAxe = getBestAxe()
             if bestAxe then
                 equipAxe(bestAxe)
@@ -176,6 +362,7 @@ function Campfire.register(context)
             platform.Parent = workspace
 
             local warpedItems = setmetatable({}, {__mode = "k"})
+            local collectedChildren = {}
             local FIRE_FUEL_ITEMS = {
                 ["Fuel Canister"] = true,
                 ["Oil Barrel"] = true,
@@ -185,9 +372,9 @@ function Campfire.register(context)
 
             local airHeight = 20
 
-            -- 2. บินดึงเชื้อเพลิงรอบๆ กองไฟ
+            -- บินดึงเชื้อเพลิงรอบแคมป์ไฟ พร้อมช่วยเด็ก
             for radius = 20, 1000, 40 do
-                if getCurrentLevel() >= maxLevel then break end
+                if getCurrentLevel() >= maxLevel and areAllChildrenRescued() then break end
 
                 local steps = 50 + math.floor(radius / 40) * 5
                 local circumference = 2 * math.pi * radius
@@ -195,7 +382,7 @@ function Campfire.register(context)
                 local duration = circumference / speed
 
                 for i = 0, steps do
-                    if getCurrentLevel() >= maxLevel then break end
+                    if getCurrentLevel() >= maxLevel and areAllChildrenRescued() then break end
 
                     local currentHRP = getHRP()
                     if not currentHRP then break end
@@ -218,11 +405,17 @@ function Campfire.register(context)
                         end
                     end
 
+                    collectLostChildren(collectedChildren)
+
                     task.wait(duration / steps)
                 end
             end
 
-            -- 3. ถ้าดึงเชื้อเพลิงแล้วยังไม่ถึง Level 7 ให้บินตัดไม้ต่อ
+            -- ปล่อยเด็กที่เก็บได้กลับกองไฟ
+            dropAllLostChildren(firePos, collectedChildren)
+            task.wait(0.5)
+
+            -- บินตัดไม้ต่อถ้าเลเวลยังไม่ถึง 7
             if getCurrentLevel() < maxLevel then
                 local trees = getTreesSorted(firePos)
                 local damageEvent = ReplicatedStorage:FindFirstChild("RemoteEvents")
@@ -244,7 +437,15 @@ function Campfire.register(context)
                     local curHRP = getHRP()
                     if not curHRP then break end
 
-                    curHRP.CFrame = CFrame.new(cutPos)
+                    -- ระบบ Floating ตาม MainScript ด้วย AlignPosition + AlignOrientation
+                    if not floatAP or not floatAP.Parent then
+                        curHRP.CFrame = CFrame.new(cutPos)
+                        task.wait(0.2)
+                        ensureFloating(cutPos)
+                    else
+                        floatAP.Position = cutPos
+                        curHRP.CFrame = CFrame.new(cutPos)
+                    end
                     platform.Position = cutPos - Vector3.new(0, 33, 0)
                     task.wait(0.1)
 
@@ -253,14 +454,12 @@ function Campfire.register(context)
                     local failStreak = 0
 
                     while tree.Parent == treeParent and getCurrentLevel() < maxLevel do
-                        -- ตรวจสอบและถือขวานซ้ำหากหลุดมือ
                         local currentAxe = checkAndReequipAxe(bestAxe)
                         if not currentAxe then break end
 
                         curHRP = getHRP()
                         if not curHRP then break end
 
-                        -- เคลื่อนที่เล็กน้อยขณะตัด
                         local dir = math.random(1, 4)
                         local offset = (dir == 1 and Vector3.new(-3, 0, 0))
                             or (dir == 2 and Vector3.new(0, 0, -3))
@@ -268,6 +467,9 @@ function Campfire.register(context)
                             or Vector3.new(0, 0, 3)
 
                         local walkPos = treePos + Vector3.new(0, 30, 0) + offset
+                        if floatAP and floatAP.Parent then
+                            floatAP.Position = walkPos
+                        end
                         curHRP.CFrame = CFrame.new(walkPos)
 
                         if damageEvent then
@@ -287,7 +489,7 @@ function Campfire.register(context)
                         if hitCount >= 500 then break end
                     end
 
-                    -- ดึง Log ที่หล่นจากการตัดเข้ากองไฟทันที
+                    -- ดึง Log เข้ากองไฟ
                     local itemsFolder = workspace:FindFirstChild("Items")
                     if itemsFolder then
                         for _, item in ipairs(itemsFolder:GetChildren()) do
@@ -299,10 +501,18 @@ function Campfire.register(context)
                 end
             end
 
-            -- ลบ platform รองรับ
-            platform:Destroy()
+            -- ปิดระบบ floating และลบ platform
+            disableFloating()
+            if platform and platform.Parent then
+                platform:Destroy()
+            end
 
-            -- 4. วาร์ปกลับแคมป์ไฟเสมอเมื่อเสร็จสิ้น
+            -- นำขวานกลับมาถืออีกครั้งหากมี
+            if bestAxe then
+                equipAxe(bestAxe)
+            end
+
+            -- วาร์ปกลับแคมป์ไฟเสมอ
             local endHRP = getHRP()
             if endHRP then
                 endHRP.CFrame = CFrame.new(firePos + Vector3.new(5, 3, 0))
@@ -314,7 +524,7 @@ function Campfire.register(context)
 
     local createButton = rawget(section, "CreateButton") or (tab and tab.CreateButton)
     if createButton then
-        createButton(section, "อัพเกรดกองไฟอัตโนมัติ (ดึงเชื้อเพลิง + ตัดไม้)", startFireRoutine)
+        createButton(section, "อัพเกรดกองไฟและช่วยเด็ก", startFireRoutine)
         createButton(section, "วาร์ปกลับแคมป์ไฟ", function()
             local hrp = getHRP()
             local firePart = getFirePart()
