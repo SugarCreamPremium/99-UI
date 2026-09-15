@@ -1,4 +1,4 @@
--- Version 8.55
+-- Version 9.02
 local Player = {}
 
 function Player.register(context)
@@ -104,23 +104,32 @@ function Player.register(context)
                 shieldPart.Size = Vector3.new(20, 20, 20)
                 shieldPart.Transparency = 1
                 shieldPart.CanCollide = false
-                shieldPart.Anchored = true
+                shieldPart.CanTouch = false
+                shieldPart.CanQuery = false
+                shieldPart.Anchored = false
+                shieldPart.Massless = true
                 shieldPart.Material = Enum.Material.ForceField
                 shieldPart.Color = Color3.fromRGB(0, 170, 255)
                 shieldPart.Parent = workspace
+
+                local weld = Instance.new("WeldConstraint")
+                weld.Part0 = shieldPart
+                weld.Part1 = hrp
+                weld.Parent = shieldPart
+                shieldPart.CFrame = hrp.CFrame
             end
             task.spawn(function()
                 while shieldPart and shieldPart.Parent do
                     local currentHRP = getHRP()
-                    if currentHRP then
-                        shieldPart.CFrame = currentHRP.CFrame
-                        for _, obj in ipairs(workspace:GetDescendants()) do
-                            if obj:IsA("BasePart") and obj:FindFirstAncestor("Projectiles") and (obj.Position - currentHRP.Position).Magnitude <= 10 then
+                    local projectiles = workspace:FindFirstChild("Projectiles")
+                    if currentHRP and projectiles then
+                        for _, obj in ipairs(projectiles:GetChildren()) do
+                            if obj:IsA("BasePart") and (obj.Position - currentHRP.Position).Magnitude <= 10 then
                                 pcall(function() obj:Destroy() end)
                             end
                         end
                     end
-                    task.wait(0.05)
+                    task.wait(0.1)
                 end
             end)
         elseif shieldPart then
