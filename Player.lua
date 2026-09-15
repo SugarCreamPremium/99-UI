@@ -1,4 +1,4 @@
--- Version 10.56
+-- Version 8.50
 local Player = {}
 
 function Player.register(context)
@@ -141,7 +141,7 @@ function Player.register(context)
     local shieldSection = tab:CreateSection("โล่ป้องกันอาวุธระยะไกล")
     local shieldToggle = rawget(shieldSection, "CreateToggle")
     if shieldToggle then
-        shieldToggle(shieldSection, "เปิดใช้งานโล่ (10 studs)", setShield)
+        shieldToggle(shieldSection, "โล่ป้องกัน (ระยะ 10 studs)", setShield)
     end
 
 end
