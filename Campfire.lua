@@ -1,4 +1,4 @@
--- Version 8.52
+-- Version 8.54
 local Campfire = {}
 
 function Campfire.register(context)
@@ -8,7 +8,7 @@ function Campfire.register(context)
     local ReplicatedStorage = context.ReplicatedStorage
     if not tab then return end
 
-    local section = tab:CreateSection("อัพเกรดกองไฟและช่วยเหลือเด็ก")
+    local section = tab:CreateSection("กองไฟ")
 
     local function getHRP()
         local char = player.Character
