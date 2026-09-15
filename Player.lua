@@ -1,4 +1,4 @@
--- Version 8.50
+-- Version 8.55
 local Player = {}
 
 function Player.register(context)
@@ -134,7 +134,7 @@ function Player.register(context)
     if not createToggle or not createSlider then return end
 
     createToggle(section, "กินอาหารอัตโนมัติ", setEnabled)
-    createSlider(section, "กินจนถึงความหิว (ค่าพื้นฐาน 100)", 1, MAX_HUNGER, DEFAULT_HUNGER, function(value)
+    createSlider(section, "กินจนถึงความหิว", 1, MAX_HUNGER, DEFAULT_HUNGER, function(value)
         targetHunger = math.clamp(value, 1, MAX_HUNGER)
     end)
 
