@@ -1,11 +1,12 @@
--- Version 8.25
+-- Version 4.57
 local Other = {}
 
 function Other.register(context)
     local tab = context.Tab
     if not tab then return end
 
-    local section = tab:CreateSection("จัดการสิ่งมีชีวิต")
+    local section = tab:Section({Title = "จัดการสิ่งมีชีวิต", Opened = true})
+    if not section then return end
     local enabled = false
     local running = false
 
@@ -44,10 +45,11 @@ function Other.register(context)
         end
     end
 
-    local createToggle = rawget(section, "CreateToggle")
-    if createToggle then
-        createToggle(section, "กำจัดกวางอัตโนมัติ (Deer)", setDeerWatcher)
-    end
+    section:Toggle({
+        Title = "กำจัดกวางอัตโนมัติ (Deer)",
+        Value = false,
+        Callback = setDeerWatcher,
+    })
 end
 
 return Other
