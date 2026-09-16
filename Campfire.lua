@@ -1,4 +1,4 @@
--- Version 9.15
+-- Version 4.57
 local Campfire = {}
 
 function Campfire.register(context)
@@ -8,7 +8,8 @@ function Campfire.register(context)
     local ReplicatedStorage = context.ReplicatedStorage
     if not tab then return end
 
-    local section = tab:CreateSection("กองไฟ")
+    local section = tab:Section({Title = "กองไฟ", Opened = true})
+    if not section then return end
 
     local function getHRP()
         local char = player.Character
@@ -458,29 +459,29 @@ function Campfire.register(context)
 
                 for _, tree in ipairs(trees) do
                     if getCurrentLevel() >= maxLevel then break end
-                    if not (tree and tree.Parent) then continue end
+                    if not (tree and tree.Parent) then
+                        break
+                    end
 
                     local foliage = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Foliage")
-                    if foliage and not tree:IsDescendantOf(foliage) then
-                        continue
+                    if not foliage or tree:IsDescendantOf(foliage) then
+                        local treePos = tree:IsA("Model") and tree:GetPivot().Position or tree.Position
+                        local cutPos = treePos + Vector3.new(0, 30, 0)
+
+                        local curHRP = getHRP()
+                        if not curHRP then break end
+
+                        -- ระบบ Floating ตาม MainScript ด้วย AlignPosition + AlignOrientation
+                        if not floatAP or not floatAP.Parent then
+                            curHRP.CFrame = CFrame.new(cutPos)
+                            task.wait(0.2)
+                            ensureFloating(cutPos)
+                        else
+                            floatAP.Position = cutPos
+                            curHRP.CFrame = CFrame.new(cutPos)
+                        end
+                        platform.Position = cutPos - Vector3.new(0, 33, 0)
                     end
-
-                    local treePos = tree:IsA("Model") and tree:GetPivot().Position or tree.Position
-                    local cutPos = treePos + Vector3.new(0, 30, 0)
-
-                    local curHRP = getHRP()
-                    if not curHRP then break end
-
-                    -- ระบบ Floating ตาม MainScript ด้วย AlignPosition + AlignOrientation
-                    if not floatAP or not floatAP.Parent then
-                        curHRP.CFrame = CFrame.new(cutPos)
-                        task.wait(0.2)
-                        ensureFloating(cutPos)
-                    else
-                        floatAP.Position = cutPos
-                        curHRP.CFrame = CFrame.new(cutPos)
-                    end
-                    platform.Position = cutPos - Vector3.new(0, 33, 0)
                     task.wait(0.1)
 
                     local treeParent = tree.Parent
@@ -556,17 +557,30 @@ function Campfire.register(context)
         end)
     end
 
-    local createButton = rawget(section, "CreateButton") or (tab and tab.CreateButton)
-    if createButton then
-        createButton(section, "อัพเกรดกองไฟและช่วยเด็ก", startFireRoutine)
-        createButton(section, "วาร์ปกลับแคมป์ไฟ", function()
-            local hrp = getHRP()
-            local firePart = getFirePart()
-            if hrp and firePart then
-                hrp.CFrame = CFrame.new(firePart.Position + Vector3.new(5, 3, 0))
-            end
-        end)
-    end
+    section:Paragraph({
+        Title = "อัพเกรดกองไฟและช่วยเด็ก",
+        Desc = "เริ่มกระบวนการอัปเกรดและช่วยเด็ก",
+        Buttons = {{
+            Title = "เริ่ม",
+            Icon = "flame",
+            Callback = startFireRoutine,
+        }},
+    })
+    section:Paragraph({
+        Title = "วาร์ปกลับแคมป์ไฟ",
+        Desc = "กลับไปยังตำแหน่งกองไฟ",
+        Buttons = {{
+            Title = "วาร์ป",
+            Icon = "map-pin",
+            Callback = function()
+                local hrp = getHRP()
+                local firePart = getFirePart()
+                if hrp and firePart then
+                    hrp.CFrame = CFrame.new(firePart.Position + Vector3.new(5, 3, 0))
+                end
+            end,
+        }},
+    })
 end
 
 return Campfire
