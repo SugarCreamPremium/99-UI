@@ -1,4 +1,4 @@
--- Version 9.02
+-- Version 4.58
 local Player = {}
 
 function Player.register(context)
@@ -6,7 +6,8 @@ function Player.register(context)
     local Client = context.Client
     local ReplicatedStorage = context.ReplicatedStorage
     local tab = context.Tab
-    local section = tab:CreateSection("กินอาหารอัตโนมัติ")
+    local section = tab:Section({Title = "กินอาหารอัตโนมัติ", Opened = true})
+    if not section then return end
     local enabled = false
     local running = false
     local targetHunger = 100
@@ -108,15 +109,18 @@ function Player.register(context)
                 shieldPart.CanQuery = false
                 shieldPart.Anchored = false
                 shieldPart.Massless = true
+                shieldPart.CustomPhysicalProperties = PhysicalProperties.new(0.01, 0, 0, 0, 0)
                 shieldPart.Material = Enum.Material.ForceField
                 shieldPart.Color = Color3.fromRGB(0, 170, 255)
-                shieldPart.Parent = workspace
+                shieldPart.CFrame = hrp.CFrame
+                shieldPart.Parent = hrp.Parent
 
                 local weld = Instance.new("WeldConstraint")
                 weld.Part0 = shieldPart
                 weld.Part1 = hrp
                 weld.Parent = shieldPart
-                shieldPart.CFrame = hrp.CFrame
+                shieldPart.AssemblyLinearVelocity = Vector3.zero
+                shieldPart.AssemblyAngularVelocity = Vector3.zero
             end
             task.spawn(function()
                 while shieldPart and shieldPart.Parent do
@@ -138,20 +142,28 @@ function Player.register(context)
         end
     end
 
-    local createToggle = rawget(section, "CreateToggle")
-    local createSlider = tab and tab.CreateSlider
-    if not createToggle or not createSlider then return end
+    section:Toggle({
+        Title = "กินอาหารอัตโนมัติ",
+        Value = false,
+        Callback = setEnabled,
+    })
+    section:Slider({
+        Title = "กินจนถึงความหิว",
+        Value = {Min = 1, Max = MAX_HUNGER, Default = DEFAULT_HUNGER},
+        Step = 1,
+        Callback = function(value)
+            targetHunger = math.clamp(value, 1, MAX_HUNGER)
+        end,
+    })
 
-    createToggle(section, "กินอาหารอัตโนมัติ", setEnabled)
-    createSlider(section, "กินจนถึงความหิว", 1, MAX_HUNGER, DEFAULT_HUNGER, function(value)
-        targetHunger = math.clamp(value, 1, MAX_HUNGER)
-    end)
+    local shieldSection = tab:Section({Title = "โล่ป้องกันอาวุธระยะไกล", Opened = true})
+    shieldSection:Toggle({
+        Title = "โล่ป้องกัน (ระยะ 10 studs)",
+        Value = false,
+        Callback = setShield,
+    })
 
-    local shieldSection = tab:CreateSection("โล่ป้องกันอาวุธระยะไกล")
-    local shieldToggle = rawget(shieldSection, "CreateToggle")
-    if shieldToggle then
-        shieldToggle(shieldSection, "โล่ป้องกัน (ระยะ 10 studs)", setShield)
-    end
+    if not shieldSection then return end
 
 end
 
