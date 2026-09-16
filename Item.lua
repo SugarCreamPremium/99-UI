@@ -1,4 +1,4 @@
--- Version 9.27
+-- Version 4.57
 local Item = {}
 
 function Item.register(context)
@@ -7,122 +7,88 @@ function Item.register(context)
     local ReplicatedStorage = context.ReplicatedStorage
     if not tab then return end
 
-    local section = tab:CreateSection("ดึงสิ่งของ (Item Teleport)")
+    local section = tab:Section({Title = "ดึงสิ่งของ", Opened = true})
+    if not section then return end
 
     local maxAmount = 10
-    local selectedItemName = nil
+    local selectedItemName
     local isPulling = false
+    local warpedItems = setmetatable({}, {__mode = "k"})
 
     local function getHead()
-        local char = player.Character
-        return char and (char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart"))
+        local character = player.Character
+        return character and (character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart"))
     end
 
-    local function pullSingleItem(item, targetPos)
-        if not item or not item.Parent then return false end
-        return pcall(function()
-            local events = ReplicatedStorage:FindFirstChild("RemoteEvents")
-            if not events then return end
-            local StartDrag = events:FindFirstChild("RequestStartDraggingItem")
-            local StopDrag = events:FindFirstChild("StopDraggingItem")
-            if not (StartDrag and StopDrag) then return end
+    local function getItemPosition(item)
+        if item:IsA("Model") then
+            local part = item.PrimaryPart or item:FindFirstChildWhichIsA("BasePart", true)
+            return part and part.Position
+        elseif item:IsA("BasePart") then
+            return item.Position
+        end
+    end
 
-            StartDrag:FireServer(item)
-            task.wait(0.05)
+    local function isValidItem(item)
+        local items = workspace:FindFirstChild("Items")
+        if not item or item.Parent ~= items then return false end
+        if not (item:IsA("Model") or item:IsA("BasePart")) then return false end
+        if not getItemPosition(item) then return false end
+        local interaction = item:GetAttribute("Interaction")
+        if interaction and interaction ~= "Item" and interaction ~= "Tool" then return false end
+        local owner = item:GetAttribute("Owner")
+        return not owner or owner == player.UserId
+    end
 
+    local function pullSingleItem(item, targetPosition)
+        if warpedItems[item] or not isValidItem(item) then return false end
+        local events = ReplicatedStorage:FindFirstChild("RemoteEvents")
+        local startDrag = events and events:FindFirstChild("RequestStartDraggingItem")
+        local stopDrag = events and events:FindFirstChild("StopDraggingItem")
+        if not (startDrag and stopDrag) then return false end
+
+        local success = pcall(function()
+            startDrag:FireServer(item)
+            task.wait(0.1)
             if item:IsA("Model") then
-                item:PivotTo(CFrame.new(targetPos))
+                item:PivotTo(CFrame.new(targetPosition))
             else
-                item.CFrame = CFrame.new(targetPos)
+                item.CFrame = CFrame.new(targetPosition)
             end
-
-            task.wait(0.05)
-            StopDrag:FireServer(item)
+            task.wait(0.1)
+            stopDrag:FireServer(item)
         end)
+        if success then warpedItems[item] = true end
+        return success
     end
 
     local function getAvailableItemNames()
-        local itemsFolder = workspace:FindFirstChild("Items")
-        if not itemsFolder then return {} end
-
-        local set = {}
-        for _, item in ipairs(itemsFolder:GetChildren()) do
-            local name = item.Name
-            if name and name ~= "" and not set[name] then
-                set[name] = true
-            end
+        local items = workspace:FindFirstChild("Items")
+        if not items then return {} end
+        local names = {}
+        for _, item in ipairs(items:GetChildren()) do
+            if isValidItem(item) then names[item.Name] = true end
         end
-
-        local list = {}
-        for name in pairs(set) do
-            table.insert(list, name)
-        end
-        table.sort(list)
-        return list
-    end
-
-    local dropdownFrame = nil
-    local itemContainer = nil
-    local dropdownTitle = nil
-
-    local function updateDropdownOptions(names)
-        if not itemContainer then return end
-
-        for _, child in ipairs(itemContainer:GetChildren()) do
-            if child:IsA("TextButton") then
-                child:Destroy()
-            end
-        end
-
-        for _, itemName in ipairs(names) do
-            local itemBtn = Instance.new("TextButton")
-            itemBtn.Name = itemName
-            itemBtn.Size = UDim2.new(1, 0, 0, 32)
-            itemBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-            itemBtn.Font = Enum.Font.Gotham
-            itemBtn.Text = itemName
-            itemBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
-            itemBtn.TextSize = 13
-            itemBtn.AutoButtonColor = true
-            itemBtn.Parent = itemContainer
-
-            local corner = Instance.new("UICorner")
-            corner.CornerRadius = UDim.new(0, 6)
-            corner.Parent = itemBtn
-
-            itemBtn.MouseButton1Click:Connect(function()
-                selectedItemName = itemName
-                if dropdownTitle then
-                    dropdownTitle.Text = "เลือกสิ่งของ : " .. itemName
-                end
-                if dropdownFrame then
-                    local header = dropdownFrame:FindFirstChild("DropdownHeader") or dropdownFrame:FindFirstChildWhichIsA("TextButton")
-                    local arrow = header and header:FindFirstChild("ArrowIcon")
-                    if arrow then arrow.Rotation = 0 end
-                    dropdownFrame:TweenSize(UDim2.new(1, 0, 0, 42), Enum.EasingDirection.Out, Enum.EasingStyle.Quart, 0.25, true)
-                end
-            end)
-        end
+        local result = {}
+        for name in pairs(names) do table.insert(result, name) end
+        table.sort(result)
+        return result
     end
 
     local function pullSpecificItem(nameToPull)
         if isPulling or not nameToPull then return end
         local head = getHead()
-        local itemsFolder = workspace:FindFirstChild("Items")
-        if not head or not itemsFolder then return end
-
+        local items = workspace:FindFirstChild("Items")
+        if not head or not items then return end
         isPulling = true
         task.spawn(function()
             local count = 0
-            local targetPos = head.Position + Vector3.new(0, 3, 0)
-            for _, item in ipairs(itemsFolder:GetChildren()) do
-                if item.Name == nameToPull then
-                    pullSingleItem(item, targetPos)
+            local targetPosition = head.Position + Vector3.new(0, 3, 0)
+            for _, item in ipairs(items:GetChildren()) do
+                if item.Name == nameToPull and pullSingleItem(item, targetPosition) then
                     count = count + 1
                     task.wait(0.08)
-                    if count >= maxAmount then
-                        break
-                    end
+                    if count >= maxAmount then break end
                 end
             end
             isPulling = false
@@ -132,71 +98,57 @@ function Item.register(context)
     local function pullAllItems()
         if isPulling then return end
         local head = getHead()
-        local itemsFolder = workspace:FindFirstChild("Items")
-        if not head or not itemsFolder then return end
-
+        local items = workspace:FindFirstChild("Items")
+        if not head or not items then return end
         isPulling = true
         task.spawn(function()
             local count = 0
-            local targetPos = head.Position + Vector3.new(0, 3, 0)
-            for _, item in ipairs(itemsFolder:GetChildren()) do
-                pullSingleItem(item, targetPos)
-                count = count + 1
+            local targetPosition = head.Position + Vector3.new(0, 3, 0)
+            for _, item in ipairs(items:GetChildren()) do
+                if pullSingleItem(item, targetPosition) then count = count + 1 end
                 task.wait(0.08)
-                if count >= maxAmount then
-                    break
-                end
+                if count >= maxAmount then break end
             end
             isPulling = false
         end)
     end
 
-    local initialList = getAvailableItemNames()
-    if #initialList == 0 then
-        initialList = {"(ยังไม่มีไอเทม)"}
-    end
-
-    tab:CreateDropdown("เลือกสิ่งของ", initialList, function(val)
-        selectedItemName = val
-    end)
-
-    local pageContainer = rawget(section, "PageContainer") or (tab and rawget(tab, "PageContainer"))
-    if pageContainer then
-        for _, child in ipairs(pageContainer:GetChildren()) do
-            local container = child:FindFirstChild("ItemContainer")
-            if container then
-                dropdownFrame = child
-                itemContainer = container
-                local header = child:FindFirstChild("DropdownHeader") or child:FindFirstChildWhichIsA("TextButton")
-                dropdownTitle = header and (header:FindFirstChild("Title") or header:FindFirstChildWhichIsA("TextLabel"))
-            end
+    local itemDropdown
+    local function refreshItems()
+        local names = getAvailableItemNames()
+        if #names == 0 then names = {"(ยังไม่มีไอเทม)"} end
+        selectedItemName = names[1]
+        if itemDropdown then
+            itemDropdown:Refresh(names)
+            itemDropdown:Select(selectedItemName)
         end
     end
 
-    tab:CreateSlider("จำนวนชิ้นสูงสุด (1 - 100)", 1, 100, 10, function(value)
-        maxAmount = math.clamp(value, 1, 100)
-    end)
-
-    local sectionFrame = rawget(section, "PageContainer")
-    local slider = sectionFrame and sectionFrame.Parent:FindFirstChild("Slider")
-    if slider then
-        slider.Parent = sectionFrame
+    local initialNames = getAvailableItemNames()
+    if #initialNames == 0 then initialNames = {"(ยังไม่มีไอเทม)"} end
+    selectedItemName = initialNames[1]
+    itemDropdown = section:Dropdown({
+        Title = "เลือกสิ่งของ",
+        Values = initialNames,
+        Value = selectedItemName,
+        SearchBarEnabled = true,
+        AllowNone = false,
+        Callback = function(value) selectedItemName = value end,
+    })
+    section:Slider({
+        Title = "จำนวนชิ้น",
+        Value = {Min = 1, Max = 100, Default = maxAmount},
+        Step = 1,
+        Callback = function(value) maxAmount = math.clamp(value, 1, 100) end,
+    })
+    local function action(title, desc, buttonTitle, icon, callback)
+        section:Paragraph({Title = title, Desc = desc, Buttons = {{Title = buttonTitle, Icon = icon, Callback = callback}}})
     end
-
-    tab:CreateButton("รีเฟรชรายชื่อสิ่งของ", function()
-        local currentList = getAvailableItemNames()
-        updateDropdownOptions(currentList)
+    action("รีเฟรชรายชื่อสิ่งของ", "อัปเดตรายการ Item ที่ดึงได้", "รีเฟรช", "refresh-cw", refreshItems)
+    action("ดึงสิ่งของที่เลือก", "ดึง Item ตามรายการที่เลือก", "ดึง", "download", function()
+        if selectedItemName ~= "(ยังไม่มีไอเทม)" then pullSpecificItem(selectedItemName) end
     end)
-
-    tab:CreateButton("ดึงสิ่งของที่เลือก", function()
-        if selectedItemName and selectedItemName ~= "(ยังไม่มีไอเทม)" then
-            pullSpecificItem(selectedItemName)
-        end
-    end)
-
-    tab:CreateButton("ดึงทุกอย่างที่ดึงได้", function()
-        pullAllItems()
-    end)
+    action("ดึงทุกอย่างที่ดึงได้", "ดึง Item ที่ผ่านการตรวจสอบทั้งหมด", "ดึงทั้งหมด", "download-cloud", pullAllItems)
 end
 
 return Item
