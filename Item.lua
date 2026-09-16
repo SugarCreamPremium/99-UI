@@ -1,4 +1,4 @@
--- Version 4.57
+-- Version 6.15
 local Item = {}
 
 function Item.register(context)
@@ -35,7 +35,7 @@ function Item.register(context)
         if not (item:IsA("Model") or item:IsA("BasePart")) then return false end
         if not getItemPosition(item) then return false end
         local interaction = item:GetAttribute("Interaction")
-        if interaction and interaction ~= "Item" and interaction ~= "Tool" then return false end
+        if interaction ~= "Item" and interaction ~= "Tool" then return false end
         local owner = item:GetAttribute("Owner")
         return not owner or owner == player.UserId
     end
@@ -148,7 +148,9 @@ function Item.register(context)
     action("ดึงสิ่งของที่เลือก", "ดึง Item ตามรายการที่เลือก", "ดึง", "download", function()
         if selectedItemName ~= "(ยังไม่มีไอเทม)" then pullSpecificItem(selectedItemName) end
     end)
-    action("ดึงทุกอย่างที่ดึงได้", "ดึง Item ที่ผ่านการตรวจสอบทั้งหมด", "ดึงทั้งหมด", "download-cloud", pullAllItems)
+    action("ดึงทุกอย่างที่ดึงได้", "ดึง Item ที่ผ่านการตรวจสอบทั้งหมด", "ดึงทั้งหมด", "download", pullAllItems)
 end
+
+return Item
 
 return Item
