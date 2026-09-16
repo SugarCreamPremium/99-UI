@@ -1,4 +1,4 @@
--- Version 10.14
+-- Version 10.18
 local Stronghold = {}
 
 function Stronghold.register(context)
@@ -377,13 +377,13 @@ function Stronghold.register(context)
 
     section:Toggle({
         Title = "ออโต้ลง Stronghold อัตโนมัติ",
-        Desc = "รอเวลา -> วาร์ปไปตี (Centroid AOE) -> เลือด 0 -> รอ 1s -> ตีพร้อมกัน -> เปิดหีบเก็บเพชร -> วนซ้ำเรื่อยๆ",
+        Desc = "ลง Stronghold เองตอนเปิด / อย่าลืมเปิดกินอาหารอัตโนมัติด้วย",
         Value = false,
         Callback = setAuto,
     })
 
     section:Button({
-        Title = "วาร์ปไปหน้า Stronghold (Sign)",
+        Title = "วาร์ปไปหน้า Stronghold",
         Desc = "วาร์ปไปยังป้ายหน้าประตูทางเข้า Stronghold",
         Callback = function()
             local hrp = getHRP()
