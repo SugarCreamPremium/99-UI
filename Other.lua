@@ -1,4 +1,4 @@
--- Version 6.15
+-- Version 11.28
 local Other = {}
 
 function Other.register(context)
@@ -13,39 +13,48 @@ function Other.register(context)
         })
         return
     end
-    local enabled = false
+    local deerEnabled = false
+    local ramEnabled = false
     local running = false
 
-    local function loop()
-        while enabled do
-            local chars = workspace:FindFirstChild("Characters")
-            local deer = chars and chars:FindFirstChild("Deer")
-            if deer then
-                pcall(function()
-                    local farPos
-                    if deer:IsA("Model") then
-                        farPos = deer:GetPivot().Position + Vector3.new(0, 5000, 0)
-                        deer:PivotTo(CFrame.new(farPos))
-                    else
-                        local root = deer:FindFirstChild("HumanoidRootPart") or deer.PrimaryPart
-                            or deer:FindFirstChildWhichIsA("BasePart")
-                        if root then
-                            farPos = root.Position + Vector3.new(0, 5000, 0)
-                            root.CFrame = CFrame.new(farPos)
-                        end
-                    end
-                end)
-                task.wait(0.1)
-                pcall(function() deer:Destroy() end)
+    local function moveAndDestroy(name)
+        local chars = workspace:FindFirstChild("Characters")
+        local animal = chars and chars:FindFirstChild(name)
+        if not animal then return end
+        pcall(function()
+            local farPos
+            if animal:IsA("Model") then
+                farPos = animal:GetPivot().Position + Vector3.new(0, 5000, 0)
+                animal:PivotTo(CFrame.new(farPos))
+            else
+                local root = animal:FindFirstChild("HumanoidRootPart") or animal.PrimaryPart
+                    or animal:FindFirstChildWhichIsA("BasePart")
+                if root then
+                    farPos = root.Position + Vector3.new(0, 5000, 0)
+                    root.CFrame = CFrame.new(farPos)
+                end
             end
+        end)
+        task.wait(0.1)
+        pcall(function() animal:Destroy() end)
+    end
+
+    local function loop()
+        while deerEnabled or ramEnabled do
+            if deerEnabled then moveAndDestroy("Deer") end
+            if ramEnabled then moveAndDestroy("Ram") end
             task.wait(0.2)
         end
         running = false
     end
 
-    local function setDeerWatcher(value)
-        enabled = value
-        if enabled and not running then
+    local function setWatcher(kind, value)
+        if kind == "Deer" then
+            deerEnabled = value
+        else
+            ramEnabled = value
+        end
+        if value and not running then
             running = true
             task.spawn(loop)
         end
@@ -54,7 +63,12 @@ function Other.register(context)
     section:Toggle({
         Title = "กำจัดกวางอัตโนมัติ (Deer)",
         Value = false,
-        Callback = setDeerWatcher,
+        Callback = function(value) setWatcher("Deer", value) end,
+    })
+    section:Toggle({
+        Title = "กำจัดแพะอัตโนมัติ (Ram)",
+        Value = false,
+        Callback = function(value) setWatcher("Ram", value) end,
     })
 end
 
