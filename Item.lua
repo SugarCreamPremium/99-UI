@@ -1,4 +1,4 @@
--- Version 7.44
+-- Version 8.43
 local Item = {}
 
 function Item.register(context)
@@ -29,11 +29,21 @@ function Item.register(context)
         end
     end
 
+    local function getInteractionRoot(item)
+        local current = item
+        while current and current.Parent and current.Parent ~= workspace.Items do
+            current = current.Parent
+        end
+        return current
+    end
+
     local function isValidItem(item)
         local items = workspace:FindFirstChild("Items")
-        if not item or item.Parent ~= items then return false end
+        if not item or not items or not item:IsDescendantOf(items) then return false end
         if not (item:IsA("Model") or item:IsA("BasePart")) then return false end
         if not getItemPosition(item) then return false end
+        local root = getInteractionRoot(item)
+        if root ~= item then return false end
         local interaction = item:GetAttribute("Interaction")
         if interaction ~= "Item" and interaction ~= "Tool" then return false end
         local owner = item:GetAttribute("Owner")
