@@ -1,4 +1,4 @@
--- Version 4.57
+-- Version 6.15
 local Other = {}
 
 function Other.register(context)
@@ -6,7 +6,13 @@ function Other.register(context)
     if not tab then return end
 
     local section = tab:Section({Title = "จัดการสิ่งมีชีวิต", Opened = true})
-    if not section then return end
+    if not section then
+        tab:Paragraph({
+            Title = "จัดการสิ่งมีชีวิต",
+            Desc = "ไม่สามารถสร้างส่วนควบคุมได้",
+        })
+        return
+    end
     local enabled = false
     local running = false
 
