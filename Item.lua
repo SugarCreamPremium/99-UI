@@ -1,4 +1,4 @@
--- Version 6.15
+-- Version 7.37
 local Item = {}
 
 function Item.register(context)
@@ -150,7 +150,5 @@ function Item.register(context)
     end)
     action("ดึงทุกอย่างที่ดึงได้", "ดึง Item ที่ผ่านการตรวจสอบทั้งหมด", "ดึงทั้งหมด", "download", pullAllItems)
 end
-
-return Item
 
 return Item
