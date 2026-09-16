@@ -1,4 +1,4 @@
--- Version 8.43
+-- Version 10.24
 local Item = {}
 
 function Item.register(context)
@@ -117,7 +117,6 @@ function Item.register(context)
             for _, item in ipairs(items:GetChildren()) do
                 if pullSingleItem(item, targetPosition) then count = count + 1 end
                 task.wait(0.04)
-                if count >= maxAmount then break end
             end
             isPulling = false
         end)
