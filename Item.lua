@@ -1,4 +1,4 @@
--- Version 7.37
+-- Version 7.44
 local Item = {}
 
 function Item.register(context)
@@ -49,13 +49,13 @@ function Item.register(context)
 
         local success = pcall(function()
             startDrag:FireServer(item)
-            task.wait(0.1)
+            task.wait(0.03)
             if item:IsA("Model") then
                 item:PivotTo(CFrame.new(targetPosition))
             else
                 item.CFrame = CFrame.new(targetPosition)
             end
-            task.wait(0.1)
+            task.wait(0.03)
             stopDrag:FireServer(item)
         end)
         if success then warpedItems[item] = true end
@@ -87,7 +87,7 @@ function Item.register(context)
             for _, item in ipairs(items:GetChildren()) do
                 if item.Name == nameToPull and pullSingleItem(item, targetPosition) then
                     count = count + 1
-                    task.wait(0.08)
+                    task.wait(0.04)
                     if count >= maxAmount then break end
                 end
             end
@@ -106,7 +106,7 @@ function Item.register(context)
             local targetPosition = head.Position + Vector3.new(0, 3, 0)
             for _, item in ipairs(items:GetChildren()) do
                 if pullSingleItem(item, targetPosition) then count = count + 1 end
-                task.wait(0.08)
+                task.wait(0.04)
                 if count >= maxAmount then break end
             end
             isPulling = false
