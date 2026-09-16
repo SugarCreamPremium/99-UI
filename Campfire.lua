@@ -1,4 +1,4 @@
--- Version 4.57
+-- Version 11.37
 local Campfire = {}
 
 function Campfire.register(context)
@@ -274,12 +274,15 @@ function Campfire.register(context)
         local char = player.Character
         local th = char and char:FindFirstChild("ToolHandle")
         local currentAxe = th and th:FindFirstChild("OriginalItem") and th.OriginalItem.Value
-        if not currentAxe then
+        if not currentAxe or currentAxe:GetAttribute("ToolName") ~= "GenericAxe" then
             equipAxe(axe)
             task.wait(0.3)
             char = player.Character
             th = char and char:FindFirstChild("ToolHandle")
             currentAxe = th and th:FindFirstChild("OriginalItem") and th.OriginalItem.Value
+        end
+        if not currentAxe or currentAxe:GetAttribute("ToolName") ~= "GenericAxe" then
+            return nil
         end
         return currentAxe
     end
@@ -465,7 +468,15 @@ function Campfire.register(context)
 
                     local foliage = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Foliage")
                     if not foliage or tree:IsDescendantOf(foliage) then
-                        local treePos = tree:IsA("Model") and tree:GetPivot().Position or tree.Position
+                        local treePos
+                        if tree:IsA("Model") then
+                            treePos = tree:GetPivot().Position
+                        elseif tree:IsA("BasePart") then
+                            treePos = tree.Position
+                        end
+                        if not treePos then
+                            continue
+                        end
                         local cutPos = treePos + Vector3.new(0, 30, 0)
 
                         local curHRP = getHRP()
