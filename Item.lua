@@ -1,4 +1,4 @@
--- Version 10.27
+-- Version 11.28
 local Item = {}
 
 function Item.register(context)
@@ -44,6 +44,10 @@ function Item.register(context)
         if not getItemPosition(item) then return false end
         local root = getInteractionRoot(item)
         if root ~= item then return false end
+        local name = item.Name
+        if name == "Part" or name == "Cabin" or name == "Model" or name == "woodplanks" then
+            return false
+        end
         local interaction = item:GetAttribute("Interaction")
         if interaction ~= "Item" and interaction ~= "Tool" then return false end
         local owner = item:GetAttribute("Owner")
