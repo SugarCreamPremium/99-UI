@@ -1,4 +1,4 @@
--- Version 10.24
+-- Version 10.27
 local Item = {}
 
 function Item.register(context)
@@ -157,7 +157,7 @@ function Item.register(context)
     action("ดึงสิ่งของที่เลือก", "ดึง Item ตามรายการที่เลือก", "ดึง", "download", function()
         if selectedItemName ~= "(ยังไม่มีไอเทม)" then pullSpecificItem(selectedItemName) end
     end)
-    action("ดึงทุกอย่างที่ดึงได้", "ดึง Item ที่ผ่านการตรวจสอบทั้งหมด", "ดึงทั้งหมด", "download", pullAllItems)
+    action("ดึงทุกอย่างที่ดึงได้", "ดึง Item ทั้งหมด (ระวังเครื่องค้าง)", "ดึงทั้งหมด", "download", pullAllItems)
 end
 
 return Item
