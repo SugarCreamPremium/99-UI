@@ -1,4 +1,4 @@
--- Version 11.00
+-- Version 11.02
 local Stronghold = {}
 
 function Stronghold.register(context)
@@ -463,7 +463,7 @@ function Stronghold.register(context)
 
     section:Paragraph({
         Title = "วาร์ปไปหน้า Stronghold",
-        Desc = "วาร์ปไปยังป้ายหน้าประตูทางเข้า Stronghold",
+        Desc = "วาร์ปไปยังป้ายหน้าประตูทางเข้า Stronghold (ต้องเปิดแมพก่อน)",
         Buttons = {{
             Title = "วาร์ป",
             Icon = "map-pin",
