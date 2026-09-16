@@ -1,4 +1,4 @@
--- Version 10.18
+-- Version 11.00
 local Stronghold = {}
 
 function Stronghold.register(context)
@@ -62,6 +62,75 @@ function Stronghold.register(context)
             current = getWeapon()
         end
         return current
+    end
+
+    -- ============================================
+    -- FLOATING / HOVER (AlignPosition + AlignOrientation)
+    -- ============================================
+    local floatAP = nil
+    local floatAO = nil
+    local followThread = nil
+
+    local function ensureFloating(targetPos)
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not (char and hrp) then return end
+
+        if not hrp:FindFirstChild("FloatAttachment") then
+            local att = Instance.new("Attachment")
+            att.Name = "FloatAttachment"
+            att.Parent = hrp
+        end
+
+        if not hrp:FindFirstChild("FloatAlignPosition") then
+            floatAP = Instance.new("AlignPosition")
+            floatAP.Name = "FloatAlignPosition"
+            floatAP.Mode = Enum.PositionAlignmentMode.OneAttachment
+            floatAP.Attachment0 = hrp.FloatAttachment
+            floatAP.MaxForce = 50000
+            floatAP.Responsiveness = 50
+            floatAP.Position = targetPos or hrp.Position
+            floatAP.Parent = hrp
+        elseif targetPos then
+            floatAP.Position = targetPos
+        end
+
+        if not hrp:FindFirstChild("FloatAlignOrientation") then
+            floatAO = Instance.new("AlignOrientation")
+            floatAO.Name = "FloatAlignOrientation"
+            floatAO.Mode = Enum.OrientationAlignmentMode.OneAttachment
+            floatAO.Attachment0 = hrp.FloatAttachment
+            floatAO.MaxTorque = 50000
+            floatAO.Responsiveness = 50
+            floatAO.CFrame = hrp.CFrame
+            floatAO.Parent = hrp
+        end
+
+        if not followThread then
+            followThread = task.spawn(function()
+                while floatAP and floatAP.Parent do
+                    local c = player.Character
+                    local h = c and c:FindFirstChild("HumanoidRootPart")
+                    local hum = c and c:FindFirstChildOfClass("Humanoid")
+                    if not h or not hum or hum.Health <= 0 then
+                        break
+                    end
+                    task.wait(0.1)
+                end
+                followThread = nil
+            end)
+        end
+    end
+
+    local function disableFloating()
+        if followThread then
+            pcall(function() task.cancel(followThread) end)
+            followThread = nil
+        end
+        pcall(function() if floatAP then floatAP:Destroy() end end)
+        pcall(function() if floatAO then floatAO:Destroy() end end)
+        floatAP = nil
+        floatAO = nil
     end
 
     local function getStrongholdTimeRemaining()
@@ -314,7 +383,10 @@ function Stronghold.register(context)
                                 centroid = centroid / #validCultists
                                 -- วาร์ปไปเหนือ Centroid 10 studs และก้มหน้าลง
                                 local warpPos = Vector3.new(centroid.X, maxY + HOVER_HEIGHT, centroid.Z)
-                                curHrp.CFrame = CFrame.new(warpPos) * CFrame.Angles(math.rad(-90), 0, 0)
+                                local targetCFrame = CFrame.new(warpPos) * CFrame.Angles(math.rad(-90), 0, 0)
+
+                                curHrp.CFrame = targetCFrame
+                                ensureFloating(warpPos)
 
                                 -- 1) รอ 0.2 วิ ให้เซิร์ฟเวอร์รับรู้ตำแหน่ง CFrame ใหม่
                                 task.wait(0.2)
@@ -347,10 +419,14 @@ function Stronghold.register(context)
                         local curHrp = getHRP()
                         if curTz and curHrp then
                             curHrp.CFrame = CFrame.new(curTz.Position + Vector3.new(0, 2, 0))
+                            ensureFloating(curTz.Position + Vector3.new(0, 2, 0))
                         end
                         task.wait(0.5)
                     end
                 end
+
+                -- ปลดล็อคการลอยตัวเมื่อเคลียร์เสร็จ
+                disableFloating()
 
                 -- เคลียร์เสร็จ เปิดหีบและเก็บเพชร
                 if autoEnabled then
@@ -364,6 +440,7 @@ function Stronghold.register(context)
                 task.wait(2)
             end
         end
+        disableFloating()
         autoRunning = false
     end
 
@@ -372,6 +449,8 @@ function Stronghold.register(context)
         if autoEnabled and not autoRunning then
             autoRunning = true
             task.spawn(strongholdLoop)
+        elseif not autoEnabled then
+            disableFloating()
         end
     end
 
@@ -382,10 +461,13 @@ function Stronghold.register(context)
         Callback = setAuto,
     })
 
-    section:Button({
+    section:Paragraph({
         Title = "วาร์ปไปหน้า Stronghold",
         Desc = "วาร์ปไปยังป้ายหน้าประตูทางเข้า Stronghold",
-        Callback = function()
+        Buttons = {{
+            Title = "วาร์ป",
+            Icon = "map-pin",
+            Callback = function()
             local hrp = getHRP()
             local sh = getStrongholdRoot()
             local building = sh and sh:FindFirstChild("Building")
@@ -398,7 +480,8 @@ function Stronghold.register(context)
                     hrp.CFrame = CFrame.new(signPos + Vector3.new(0, 3, 5))
                 end
             end
-        end,
+            end,
+        }},
     })
 end
 
