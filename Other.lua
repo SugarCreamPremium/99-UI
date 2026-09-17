@@ -1,4 +1,4 @@
--- Version 11.28
+-- Version 9.31
 local Other = {}
 
 function Other.register(context)
@@ -13,8 +13,7 @@ function Other.register(context)
         })
         return
     end
-    local deerEnabled = false
-    local ramEnabled = false
+    local enabledAnimals = {}
     local running = false
 
     local function moveAndDestroy(name)
@@ -40,36 +39,36 @@ function Other.register(context)
     end
 
     local function loop()
-        while deerEnabled or ramEnabled do
-            if deerEnabled then moveAndDestroy("Deer") end
-            if ramEnabled then moveAndDestroy("Ram") end
+        while next(enabledAnimals) do
+            for name in pairs(enabledAnimals) do
+                moveAndDestroy(name)
+            end
             task.wait(0.2)
         end
         running = false
     end
 
-    local function setWatcher(kind, value)
-        if kind == "Deer" then
-            deerEnabled = value
-        else
-            ramEnabled = value
-        end
+    local function setWatcher(name, value)
+        enabledAnimals[name] = value or nil
         if value and not running then
             running = true
             task.spawn(loop)
         end
     end
 
-    section:Toggle({
-        Title = "กำจัดกวางอัตโนมัติ (Deer)",
-        Value = false,
-        Callback = function(value) setWatcher("Deer", value) end,
-    })
-    section:Toggle({
-        Title = "กำจัดแพะอัตโนมัติ (Ram)",
-        Value = false,
-        Callback = function(value) setWatcher("Ram", value) end,
-    })
+    local ANIMALS = {
+        {Name = "Deer", Thai = "กวาง"},
+        {Name = "Ram", Thai = "แพะ"},
+        {Name = "Cat", Thai = "แมว"},
+        {Name = "Owl", Thai = "นกฮูก"},
+    }
+    for _, animal in ipairs(ANIMALS) do
+        section:Toggle({
+            Title = "กำจัด" .. animal.Thai .. "อัตโนมัติ (" .. animal.Name .. ")",
+            Value = false,
+            Callback = function(value) setWatcher(animal.Name, value) end,
+        })
+    end
 end
 
 return Other
