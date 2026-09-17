@@ -1,4 +1,4 @@
--- Version 10.04
+-- Version 10.28
 local Item = {}
 
 function Item.register(context)
@@ -57,6 +57,42 @@ function Item.register(context)
         return not owner or owner == player.UserId
     end
 
+    local function collectParts(item)
+        local parts = {}
+        if item:IsA("Model") then
+            for _, part in ipairs(item:GetDescendants()) do
+                if part:IsA("BasePart") then table.insert(parts, part) end
+            end
+        elseif item:IsA("BasePart") then
+            table.insert(parts, item)
+        end
+        return parts
+    end
+
+    -- ทำลายเฉพาะ Joints ที่เชื่อมกับชิ้นส่วนภายนอกโมเดล (ไม่แตะข้อต่อภายใน)
+    local function breakExternalJoints(item, parts)
+        for _, part in ipairs(parts) do
+            pcall(function()
+                for _, joint in ipairs(part:GetJoints()) do
+                    local other = joint.Part0 == part and joint.Part1 or joint.Part0
+                    if other and other:IsA("BasePart") and not other:IsDescendantOf(item) then
+                        joint:Destroy()
+                    end
+                end
+            end)
+            pcall(function()
+                for _, wc in ipairs(part:GetChildren()) do
+                    if wc:IsA("WeldConstraint") then
+                        local other = wc.Part0 == part and wc.Part1 or wc.Part0
+                        if other and other:IsA("BasePart") and not other:IsDescendantOf(item) then
+                            wc:Destroy()
+                        end
+                    end
+                end
+            end)
+        end
+    end
+
     local function pullSingleItem(item, targetPosition)
         if warpedItems[item] or not isValidItem(item) then return false end
         local events = ReplicatedStorage:FindFirstChild("RemoteEvents")
@@ -65,15 +101,17 @@ function Item.register(context)
         if not (startDrag and stopDrag) then return false end
 
         local success = pcall(function()
-            -- ปลดเฉพาะ Joints ภายนอกที่เชื่อมกับ item อื่น (ไม่ทำลาย Joints ภายในของ Model)
-            if item:IsA("Model") then
-                -- BreakJoints เฉพาะ PrimaryPart หรือ BasePart ชั้นนอกสุด (ไม่แตะลูก)
-                local root = item.PrimaryPart or item:FindFirstChildWhichIsA("BasePart")
-                if root then
-                    pcall(function() root:BreakJoints() end)
-                end
-            elseif item:IsA("BasePart") then
-                pcall(function() item:BreakJoints() end)
+            local parts = collectParts(item)
+            if #parts == 0 then return end
+
+            -- 1) ปลดข้อต่อภายนอกเท่านั้น (ส่วนภายในโมเดลยังติดกันเหมือนเดิม)
+            breakExternalJoints(item, parts)
+
+            -- 2) Anchor ทั้งหมดชั่วคราว: ลูกภายในไม่กระจาย + ของนอกไม่ตามมา
+            local anchorStates = {}
+            for _, part in ipairs(parts) do
+                anchorStates[part] = part.Anchored
+                part.Anchored = true
             end
             task.wait(0.05)
 
@@ -86,6 +124,13 @@ function Item.register(context)
             end
             task.wait(0.05)
             stopDrag:FireServer(item)
+
+            -- 3) คืนค่า Anchor เดิม
+            for _, part in ipairs(parts) do
+                if anchorStates[part] ~= nil then
+                    part.Anchored = anchorStates[part]
+                end
+            end
         end)
         if success then warpedItems[item] = true end
         return success
