@@ -1,4 +1,4 @@
--- Version 11.28
+-- Version 6.02
 local Item = {}
 
 function Item.register(context)
@@ -45,9 +45,12 @@ function Item.register(context)
         local root = getInteractionRoot(item)
         if root ~= item then return false end
         local name = item.Name
-        if name == "Part" or name == "Cabin" or name == "Model" or name == "woodplanks" then
+        if name == "Part" or name == "Cabin" or name == "Model" or name == "woodplanks"
+            or name == "Berry Bush" or string.find(string.lower(name), "bush", 1, true) then
             return false
         end
+        local map = workspace:FindFirstChild("Map")
+        if map and item:IsDescendantOf(map) then return false end
         local interaction = item:GetAttribute("Interaction")
         if interaction ~= "Item" and interaction ~= "Tool" then return false end
         local owner = item:GetAttribute("Owner")
