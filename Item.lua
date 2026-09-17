@@ -1,4 +1,4 @@
--- Version 10.28
+-- Version 10.53
 local Item = {}
 
 function Item.register(context)
@@ -100,21 +100,25 @@ function Item.register(context)
         local stopDrag = events and events:FindFirstChild("StopDraggingItem")
         if not (startDrag and stopDrag) then return false end
 
-        local success = pcall(function()
-            local parts = collectParts(item)
-            if #parts == 0 then return end
+        local parts = collectParts(item)
+        if #parts == 0 then return false end
 
-            -- 1) ปลดข้อต่อภายนอกเท่านั้น (ส่วนภายในโมเดลยังติดกันเหมือนเดิม)
-            breakExternalJoints(item, parts)
+        -- จดค่า Anchor เดิมไว้
+        local anchorStates = {}
+        for _, part in ipairs(parts) do
+            anchorStates[part] = part.Anchored
+        end
 
-            -- 2) Anchor ทั้งหมดชั่วคราว: ลูกภายในไม่กระจาย + ของนอกไม่ตามมา
-            local anchorStates = {}
-            for _, part in ipairs(parts) do
-                anchorStates[part] = part.Anchored
-                part.Anchored = true
-            end
-            task.wait(0.05)
+        -- 1) ปลดข้อต่อภายนอกเท่านั้น (ส่วนภายในโมเดลยังติดกันเหมือนเดิม)
+        breakExternalJoints(item, parts)
 
+        -- 2) Anchor ทุกชิ้นชั่วคราว (กันลูกกระจายระหว่างลาก)
+        for _, part in ipairs(parts) do
+            pcall(function() part.Anchored = true end)
+        end
+        task.wait(0.05)
+
+        local dragOk = pcall(function()
             startDrag:FireServer(item)
             task.wait(0.05)
             if item:IsA("Model") then
@@ -124,16 +128,19 @@ function Item.register(context)
             end
             task.wait(0.05)
             stopDrag:FireServer(item)
+        end)
 
-            -- 3) คืนค่า Anchor เดิม
-            for _, part in ipairs(parts) do
-                if anchorStates[part] ~= nil then
+        -- 3) คืนค่า Anchor เสมอ ไม่ว่า drag จะ error หรือ part โดน destroy กลางคัน
+        for _, part in ipairs(parts) do
+            pcall(function()
+                if part.Parent and anchorStates[part] ~= nil then
                     part.Anchored = anchorStates[part]
                 end
-            end
-        end)
-        if success then warpedItems[item] = true end
-        return success
+            end)
+        end
+
+        if dragOk and item.Parent then warpedItems[item] = true end
+        return dragOk
     end
 
     local function getAvailableItemNames()
