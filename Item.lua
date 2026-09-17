@@ -1,4 +1,4 @@
--- Version 6.02
+-- Version 9.50
 local Item = {}
 
 function Item.register(context)
@@ -65,14 +65,32 @@ function Item.register(context)
         if not (startDrag and stopDrag) then return false end
 
         local success = pcall(function()
+            -- ปลดฟิสิกส์ก่อนดึง (BreakJoints / Unanchor descendants)
+            if item:IsA("Model") then
+                for _, part in ipairs(item:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        pcall(function()
+                            part:BreakJoints()
+                            if part.Anchored then part.Anchored = false end
+                        end)
+                    end
+                end
+            elseif item:IsA("BasePart") then
+                pcall(function()
+                    item:BreakJoints()
+                    if item.Anchored then item.Anchored = false end
+                end)
+            end
+            task.wait(0.05)
+
             startDrag:FireServer(item)
-            task.wait(0.03)
+            task.wait(0.05)
             if item:IsA("Model") then
                 item:PivotTo(CFrame.new(targetPosition))
             else
                 item.CFrame = CFrame.new(targetPosition)
             end
-            task.wait(0.03)
+            task.wait(0.05)
             stopDrag:FireServer(item)
         end)
         if success then warpedItems[item] = true end
