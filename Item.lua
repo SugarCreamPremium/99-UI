@@ -1,4 +1,4 @@
--- Version 9.50
+-- Version 10.04
 local Item = {}
 
 function Item.register(context)
@@ -65,21 +65,15 @@ function Item.register(context)
         if not (startDrag and stopDrag) then return false end
 
         local success = pcall(function()
-            -- ปลดฟิสิกส์ก่อนดึง (BreakJoints / Unanchor descendants)
+            -- ปลดเฉพาะ Joints ภายนอกที่เชื่อมกับ item อื่น (ไม่ทำลาย Joints ภายในของ Model)
             if item:IsA("Model") then
-                for _, part in ipairs(item:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        pcall(function()
-                            part:BreakJoints()
-                            if part.Anchored then part.Anchored = false end
-                        end)
-                    end
+                -- BreakJoints เฉพาะ PrimaryPart หรือ BasePart ชั้นนอกสุด (ไม่แตะลูก)
+                local root = item.PrimaryPart or item:FindFirstChildWhichIsA("BasePart")
+                if root then
+                    pcall(function() root:BreakJoints() end)
                 end
             elseif item:IsA("BasePart") then
-                pcall(function()
-                    item:BreakJoints()
-                    if item.Anchored then item.Anchored = false end
-                end)
+                pcall(function() item:BreakJoints() end)
             end
             task.wait(0.05)
 
