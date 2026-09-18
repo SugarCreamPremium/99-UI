@@ -1,4 +1,4 @@
--- Version 3.21
+-- Version 3.25
 local Player = {}
 
 -- กันดาเมจพื้นฐาน (Melee + Projectile + กับดัก/สิ่งแวดล้อม): กลบ remote รายงานความเสียหายจาก client -> server
@@ -17,7 +17,7 @@ local blockedDamage = {
 }
 
 local oldNamecall
-local blockEnabled = true
+local blockEnabled = false -- ปิดเป็นค่าเริ่มต้น (เปิดเองตอนต้องการ)
 
 -- เปิด/ปิดการกันดาเมจ (true = กัน, false = ปล่อยให้โจมตีปกติ)
 function Player.setDamageBlock(v)
@@ -42,7 +42,7 @@ function Player.register(context)
     if dmgSection then
         dmgSection:Toggle({
             Title = "กันดาเมจเกือบทุกประเภท (ยกเว้น กบ , ติดสถานะต่างๆ)",
-            Value = true,
+            Value = false,
             Callback = Player.setDamageBlock,
         })
     end
