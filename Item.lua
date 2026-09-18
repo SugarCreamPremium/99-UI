@@ -1,4 +1,4 @@
--- Version 10.53
+-- Version 9.21
 local Item = {}
 
 function Item.register(context)
@@ -93,6 +93,17 @@ function Item.register(context)
         end
     end
 
+    -- ปลด Anchor ทุกชิ้นของของที่ดึงมา (ไม่ให้เหลือชิ้นไหนลอยค้าง)
+    local function releaseAnchors(parts)
+        for _, part in ipairs(parts) do
+            pcall(function()
+                if part.Parent then
+                    part.Anchored = false
+                end
+            end)
+        end
+    end
+
     local function pullSingleItem(item, targetPosition)
         if warpedItems[item] or not isValidItem(item) then return false end
         local events = ReplicatedStorage:FindFirstChild("RemoteEvents")
@@ -103,12 +114,6 @@ function Item.register(context)
         local parts = collectParts(item)
         if #parts == 0 then return false end
 
-        -- จดค่า Anchor เดิมไว้
-        local anchorStates = {}
-        for _, part in ipairs(parts) do
-            anchorStates[part] = part.Anchored
-        end
-
         -- 1) ปลดข้อต่อภายนอกเท่านั้น (ส่วนภายในโมเดลยังติดกันเหมือนเดิม)
         breakExternalJoints(item, parts)
 
@@ -118,26 +123,22 @@ function Item.register(context)
         end
         task.wait(0.05)
 
-        local dragOk = pcall(function()
-            startDrag:FireServer(item)
-            task.wait(0.05)
-            if item:IsA("Model") then
-                item:PivotTo(CFrame.new(targetPosition))
-            else
-                item.CFrame = CFrame.new(targetPosition)
-            end
-            task.wait(0.05)
-            stopDrag:FireServer(item)
-        end)
-
-        -- 3) คืนค่า Anchor เสมอ ไม่ว่า drag จะ error หรือ part โดน destroy กลางคัน
-        for _, part in ipairs(parts) do
-            pcall(function()
-                if part.Parent and anchorStates[part] ~= nil then
-                    part.Anchored = anchorStates[part]
-                end
-            end)
+        local dragOk = pcall(function() startDrag:FireServer(item) end)
+        task.wait(0.05)
+        if item:IsA("Model") then
+            pcall(function() item:PivotTo(CFrame.new(targetPosition)) end)
+        else
+            pcall(function() item.CFrame = CFrame.new(targetPosition) end)
         end
+        task.wait(0.05)
+        pcall(function() stopDrag:FireServer(item) end)
+        task.wait(0.05)
+
+        -- 3) ปลด Anchor ทุกชิ้นเสมอ ไม่ว่า drag จะ error หรือ part โดน destroy กลางคัน
+        releaseAnchors(parts)
+
+        -- 4) เช็คซ้ำอีกรอบหลัง server กลับสถานะ (กัน anchor ค้างจากฝั่งเกม)
+        task.delay(0.4, function() releaseAnchors(parts) end)
 
         if dragOk and item.Parent then warpedItems[item] = true end
         return dragOk
