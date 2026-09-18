@@ -1,4 +1,4 @@
--- Version 9.21
+-- Version 10.49
 local Item = {}
 
 function Item.register(context)
@@ -225,7 +225,7 @@ function Item.register(context)
     local function action(title, desc, buttonTitle, icon, callback)
         section:Paragraph({Title = title, Desc = desc, Buttons = {{Title = buttonTitle, Icon = icon, Callback = callback}}})
     end
-    action("รีเฟรชรายชื่อสิ่งของ", "อัปเดตรายการ Item ที่ดึงได้", "รีเฟรช", "refresh-cw", refreshItems)
+    action("รีเฟรชรายชื่อสิ่งของ", "อัปเดตรายการ Item ที่ดึงได้ (แนะนำเปิดแมพก่อน จะดึงของได้มากขึ้น)", "รีเฟรช", "refresh-cw", refreshItems)
     action("ดึงสิ่งของที่เลือก", "ดึง Item ตามรายการที่เลือก", "ดึง", "download", function()
         if selectedItemName ~= "(ยังไม่มีไอเทม)" then pullSpecificItem(selectedItemName) end
     end)
