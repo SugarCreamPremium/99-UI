@@ -1,4 +1,4 @@
--- Version 10.49
+-- Version 9.49
 local Item = {}
 
 function Item.register(context)
@@ -121,18 +121,18 @@ function Item.register(context)
         for _, part in ipairs(parts) do
             pcall(function() part.Anchored = true end)
         end
-        task.wait(0.05)
+        task.wait(0.02)
 
         local dragOk = pcall(function() startDrag:FireServer(item) end)
-        task.wait(0.05)
+        task.wait(0.02)
         if item:IsA("Model") then
             pcall(function() item:PivotTo(CFrame.new(targetPosition)) end)
         else
             pcall(function() item.CFrame = CFrame.new(targetPosition) end)
         end
-        task.wait(0.05)
+        task.wait(0.02)
         pcall(function() stopDrag:FireServer(item) end)
-        task.wait(0.05)
+        task.wait(0.02)
 
         -- 3) ปลด Anchor ทุกชิ้นเสมอ ไม่ว่า drag จะ error หรือ part โดน destroy กลางคัน
         releaseAnchors(parts)
@@ -169,7 +169,7 @@ function Item.register(context)
             for _, item in ipairs(items:GetChildren()) do
                 if item.Name == nameToPull and pullSingleItem(item, targetPosition) then
                     count = count + 1
-                    task.wait(0.04)
+                    task.wait(0.02)
                     if count >= maxAmount then break end
                 end
             end
@@ -188,7 +188,7 @@ function Item.register(context)
             local targetPosition = head.Position + Vector3.new(0, 3, 0)
             for _, item in ipairs(items:GetChildren()) do
                 if pullSingleItem(item, targetPosition) then count = count + 1 end
-                task.wait(0.04)
+                task.wait(0.02)
             end
             isPulling = false
         end)
