@@ -1,4 +1,4 @@
--- Version 10.27
+-- Version 1.00
 local Campfire = {}
 
 function Campfire.register(context)
@@ -341,40 +341,45 @@ function Campfire.register(context)
         if #parts == 0 then return end
         warped[item] = true
 
-        -- 1) ปลดข้อต่อภายนอกเท่านั้น (ส่วนภายในโมเดลยังติดกันเหมือนเดิม)
-        breakExternalJoints(item, parts)
+        -- ดึงแบบพร้อมกันทุกชิ้น (แยก task ต่อชิ้น) -> รวมเวลาแค่ ~0.1 วิ ไม่ว่าจะกี่ชิ้น
+        task.spawn(function()
+            -- 1) ปลดข้อต่อภายนอกเท่านั้น (ส่วนภายในโมเดลยังติดกันเหมือนเดิม)
+            breakExternalJoints(item, parts)
 
-        -- 2) Anchor ทุกชิ้นชั่วคราว (กันลูกกระจายระหว่างดึง)
-        for _, part in ipairs(parts) do
-            pcall(function() part.Anchored = true end)
-        end
-        task.wait(0.02)
+            -- 2) Anchor ทุกชิ้นชั่วคราว (กันลูกกระจายระหว่างดึง)
+            for _, part in ipairs(parts) do
+                pcall(function() part.Anchored = true end)
+            end
+            task.wait(0.02)
 
-        local events = ReplicatedStorage:FindFirstChild("RemoteEvents")
-        local StartDrag = events and events:FindFirstChild("RequestStartDraggingItem")
-        local StopDrag = events and events:FindFirstChild("StopDraggingItem")
-        local dragOk = false
-        if StartDrag then
-            dragOk = pcall(function() StartDrag:FireServer(item) end)
-        end
-        task.wait(0.02)
-        local targetPos = firePos + Vector3.new(0, 10, 0)
-        if item:IsA("Model") then
-            pcall(function() item:PivotTo(CFrame.new(targetPos)) end)
-        else
-            pcall(function() item.CFrame = CFrame.new(targetPos) end)
-        end
-        task.wait(0.02)
-        if StopDrag then
-            pcall(function() StopDrag:FireServer(item) end)
-        end
-        task.wait(0.02)
+            local events = ReplicatedStorage:FindFirstChild("RemoteEvents")
+            local StartDrag = events and events:FindFirstChild("RequestStartDraggingItem")
+            local StopDrag = events and events:FindFirstChild("StopDraggingItem")
+            if StartDrag then
+                pcall(function() StartDrag:FireServer(item) end)
+            end
+            task.wait(0.02)
 
-        -- 3) ปลด Anchor ทุกชิ้นเสมอ ไม่ว่า drag จะ error หรือ part โดน destroy กลางคัน
-        releaseAnchors(parts)
+            -- กระจายจุดตกเล็กน้อยรอบกองไฟ กันของทุกชิ้นซ้อนทับจุดเดียวกันพอดี
+            local offset = Vector3.new(math.random(-3, 3), 0, math.random(-3, 3))
+            local targetPos = firePos + Vector3.new(0, 10, 0) + offset
+            if item:IsA("Model") then
+                pcall(function() item:PivotTo(CFrame.new(targetPos)) end)
+            else
+                pcall(function() item.CFrame = CFrame.new(targetPos) end)
+            end
+            task.wait(0.02)
+            if StopDrag then
+                pcall(function() StopDrag:FireServer(item) end)
+            end
+            task.wait(0.02)
 
-        -- 4) เช็คซ้ำอีกรอบหลัง server กลับสถานะ (กัน anchor ค้างจากฝั่งเกม)
-        task.delay(0.4, function() releaseAnchors(parts) end)
+            -- 3) ปลด Anchor ทุกชิ้นเสมอ ไม่ว่า drag จะ error หรือ part โดน destroy กลางคัน
+            releaseAnchors(parts)
+
+            -- 4) เช็คซ้ำอีกรอบหลัง server กลับสถานะ (กัน anchor ค้างจากฝั่งเกม)
+            task.delay(0.4, function() releaseAnchors(parts) end)
+        end)
     end
 
     local CHOPPABLE_TREE_NAMES = {
@@ -545,12 +550,13 @@ function Campfire.register(context)
                         break
                     end
 
+                    -- treePos ต้องอยู่นอก if-block (ใช้ต่อใน while ตอนฟัน) กัน nil หลุดไปบวก Vector3
+                    local treePos = resolveTreePos(tree)
+                    if not treePos then break end
+                    local cutPos = treePos + Vector3.new(0, 30, 0)
+
                     local foliage = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Foliage")
                     if not foliage or tree:IsDescendantOf(foliage) then
-                        local treePos = resolveTreePos(tree)
-                        if not treePos then break end
-                        local cutPos = treePos + Vector3.new(0, 30, 0)
-
                         local curHRP = getHRP()
                         if not curHRP then break end
 
