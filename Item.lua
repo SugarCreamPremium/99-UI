@@ -1,4 +1,4 @@
--- Version 10.09
+-- Version 10.47
 local Item = {}
 
 function Item.register(context)
@@ -11,7 +11,7 @@ function Item.register(context)
     if not section then return end
 
     local maxAmount = 10
-    local selectedItemName
+    local selectedItems = {}
     local isPulling = false
     local warpedItems = setmetatable({}, {__mode = "k"})
 
@@ -157,20 +157,24 @@ function Item.register(context)
         return result
     end
 
-    local function pullSpecificItem(nameToPull)
-        if isPulling or not nameToPull then return end
-        local head = getHead()
+    local function pullSelectedItems()
+        if isPulling or not next(selectedItems) then return end
         local items = workspace:FindFirstChild("Items")
-        if not head or not items then return end
+        if not items then return end
+        local target = getPullTargetPosition()
+        if not target then return end
         isPulling = true
         task.spawn(function()
-            local count = 0
-            local targetPosition = head.Position + Vector3.new(0, 3, 0)
-            for _, item in ipairs(items:GetChildren()) do
-                if item.Name == nameToPull and pullSingleItem(item, targetPosition) then
-                    count = count + 1
-                    task.wait(0.02)
-                    if count >= maxAmount then break end
+            for _, name in ipairs(getAvailableItemNames()) do
+                if selectedItems[name] then
+                    local count = 0
+                    for _, item in ipairs(items:GetChildren()) do
+                        if item.Name == name and pullSingleItem(item, target) then
+                            count = count + 1
+                            task.wait(0.02)
+                            if count >= maxAmount then break end
+                        end
+                    end
                 end
             end
             isPulling = false
@@ -179,15 +183,14 @@ function Item.register(context)
 
     local function pullAllItems()
         if isPulling then return end
-        local head = getHead()
         local items = workspace:FindFirstChild("Items")
-        if not head or not items then return end
+        if not items then return end
+        local target = getPullTargetPosition()
+        if not target then return end
         isPulling = true
         task.spawn(function()
-            local count = 0
-            local targetPosition = head.Position + Vector3.new(0, 3, 0)
             for _, item in ipairs(items:GetChildren()) do
-                if pullSingleItem(item, targetPosition) then count = count + 1 end
+                pullSingleItem(item, target)
                 task.wait(0.02)
             end
             isPulling = false
@@ -320,26 +323,56 @@ function Item.register(context)
     end
 
     local itemDropdown
+    local function selectionToList(value)
+        if type(value) == "table" then
+            local out = {}
+            for _, name in ipairs(value) do
+                if type(name) == "string" then table.insert(out, name) end
+            end
+            return out
+        end
+        if type(value) == "string" then return {value} end
+        return {}
+    end
+
     local function refreshItems()
         local names = getAvailableItemNames()
         if #names == 0 then names = {"(ยังไม่มีไอเทม)"} end
-        selectedItemName = names[1]
         if itemDropdown then
             itemDropdown:Refresh(names)
-            itemDropdown:Select(selectedItemName)
+            for name in pairs(selectedItems) do
+                if table.find(names, name) then
+                    itemDropdown:Select(name)
+                end
+            end
         end
     end
 
     local initialNames = getAvailableItemNames()
     if #initialNames == 0 then initialNames = {"(ยังไม่มีไอเทม)"} end
-    selectedItemName = initialNames[1]
+    selectedItems[initialNames[1]] = true
     itemDropdown = section:Dropdown({
         Title = "เลือกสิ่งของ",
         Values = initialNames,
-        Value = selectedItemName,
+        Value = {initialNames[1]},
+        Multi = true,
         SearchBarEnabled = true,
         AllowNone = false,
-        Callback = function(value) selectedItemName = value end,
+        Callback = function(value)
+            local list = selectionToList(value)
+            if type(value) == "string" and #list == 1 then
+                -- กรณี WindUI ส่งค่ามาทีละตัว -> toggle เอาเอง
+                local name = list[1]
+                if selectedItems[name] then
+                    selectedItems[name] = nil
+                else
+                    selectedItems[name] = true
+                end
+            else
+                selectedItems = {}
+                for _, name in ipairs(list) do selectedItems[name] = true end
+            end
+        end,
     })
     section:Slider({
         Title = "จำนวนชิ้น",
@@ -347,12 +380,49 @@ function Item.register(context)
         Step = 1,
         Callback = function(value) maxAmount = math.clamp(value, 1, 100) end,
     })
+
+    local PULL_TARGETS = {
+        { Key = "head",  Label = "บนหัวเรา" },
+        { Key = "fire",  Label = "บนกองไฟ" },
+        { Key = "craft", Label = "โต๊ะคราฟต์" },
+    }
+    local pullTarget = "head"
+
+    local function getPullTargetPosition()
+        if pullTarget == "fire" then
+            local firePos = getFirePos()
+            if firePos then return firePos + Vector3.new(0, 10, 0) end
+        elseif pullTarget == "craft" then
+            local map = workspace:FindFirstChild("Map")
+            local camp = map and map:FindFirstChild("Campground")
+            local craft = camp and camp:FindFirstChild("CraftingBench")
+            local zone = craft and craft:FindFirstChild("TouchZone")
+            if zone and zone:IsA("BasePart") then return zone.Position end
+        end
+        local head = getHead()
+        return head and head.Position + Vector3.new(0, 3, 0)
+    end
+
+    local targetLabels = {}
+    for _, t in ipairs(PULL_TARGETS) do table.insert(targetLabels, t.Label) end
+    section:Dropdown({
+        Title = "จุดดึงของ",
+        Values = targetLabels,
+        Value = targetLabels[1],
+        AllowNone = false,
+        Callback = function(value)
+            for _, t in ipairs(PULL_TARGETS) do
+                if t.Label == value then pullTarget = t.Key end
+            end
+        end,
+    })
+
     local function action(title, desc, buttonTitle, icon, callback)
         section:Paragraph({Title = title, Desc = desc, Buttons = {{Title = buttonTitle, Icon = icon, Callback = callback}}})
     end
     action("รีเฟรชรายชื่อสิ่งของ", "อัปเดตรายการ Item ที่ดึงได้ (แนะนำเปิดแมพก่อน จะดึงของได้มากขึ้น)", "รีเฟรช", "refresh-cw", refreshItems)
-    action("ดึงสิ่งของที่เลือก", "ดึง Item ตามรายการที่เลือก", "ดึง", "download", function()
-        if selectedItemName ~= "(ยังไม่มีไอเทม)" then pullSpecificItem(selectedItemName) end
+    action("ดึงสิ่งของที่เลือก", "ดึง Item ตามที่เลือก", "ดึง", "download", function()
+        if next(selectedItems) then pullSelectedItems() end
     end)
     action("ดึงทุกอย่างที่ดึงได้", "ดึง Item ทั้งหมด (ระวังเครื่องค้าง)", "ดึงทั้งหมด", "download", pullAllItems)
 
