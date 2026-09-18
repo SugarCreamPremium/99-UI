@@ -1,4 +1,4 @@
--- Version 10.07
+-- Version 10.09
 local Item = {}
 
 function Item.register(context)
@@ -360,7 +360,7 @@ function Item.register(context)
     if chestSection then
         chestSection:Paragraph({
             Title = "เปิดหีบทั้งหมด",
-            Desc = "ล็อคตัว วาร์ปเปิดหีบทุกกล่อง แล้วกลับกองไฟ (ถ้าเปิดหมดแล้ว กดแล้วไม่ทำอะไร)",
+            Desc = "วาร์ปเปิดหีบทุกกล่อง แล้วกลับกองไฟ (ถ้าเปิดหมดแล้ว กดแล้วไม่ทำอะไร)",
             Buttons = {{
                 Title = "เปิดหีบทั้งหมด",
                 Icon = "lock-open",
