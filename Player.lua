@@ -1,11 +1,52 @@
--- Version 4.58
+-- Version 3.21
 local Player = {}
+
+-- กันดาเมจพื้นฐาน (Melee + Projectile + กับดัก/สิ่งแวดล้อม): กลบ remote รายงานความเสียหายจาก client -> server
+-- มีผลกับกระสุน NPC (ProjectileClass.lua เป็นคน FireServer) และ melee ระยะใกล้ (NPCModuleClient:740)
+-- หมายเหตุ: ดาเมจที่ server หักเอง (เช่น Frog) กลบไม่ได้จาก client — วิธีนี้กันได้แค่ส่วนที่ทำงานผ่าน remote
+local blockedDamage = {
+    NPCProjectileDamagePlayer = true, -- กระสุนระยะไกล
+    NPCProjectileDamagePet    = true, -- กระสุนโดนเพ็ท
+    ClientTriggerNPCAttack    = true, -- melee ระยะใกล้ (wolf/bear/cultist ฯลฯ)
+    JungleSpikeTrapDamage     = true, -- กับดักหนาม
+    RamChargePlayer           = true, -- ถูกพุ่งชน (Ram/สัตว์ชน)
+    CheckLightningDamage      = true, -- ไฟฟ้าฝน — WeatherEffectModule:616/619
+    HitByBatScream            = true, -- ค้างคาวกรีด — BatClient:36
+    OwlChasePlayer            = true, -- นกเค้าแมวโฉบ — OwlModuleClient:225
+    TriggerArrowTrap          = true, -- กับดักลูกศรป่าดงดิบ — ArrowTrapClient:88
+}
+
+local oldNamecall
+local blockEnabled = true
+
+-- เปิด/ปิดการกันดาเมจ (true = กัน, false = ปล่อยให้โจมตีปกติ)
+function Player.setDamageBlock(v)
+    blockEnabled = v
+end
+
+oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+    if blockEnabled and getnamecallmethod() == "FireServer"
+        and self.ClassName == "RemoteEvent" and blockedDamage[self.Name] then
+        return nil
+    end
+    return oldNamecall(self, ...)
+end))
 
 function Player.register(context)
     local player = context.Player
     local Client = context.Client
     local ReplicatedStorage = context.ReplicatedStorage
     local tab = context.Tab
+
+    local dmgSection = tab:Section({Title = "God Mode", Opened = true})
+    if dmgSection then
+        dmgSection:Toggle({
+            Title = "กันดาเมจเกือบทุกประเภท (ยกเว้น กบ , ติดสถานะต่างๆ)",
+            Value = true,
+            Callback = Player.setDamageBlock,
+        })
+    end
+
     local section = tab:Section({Title = "กินอาหารอัตโนมัติ", Opened = true})
     if not section then return end
     local enabled = false
@@ -95,53 +136,6 @@ function Player.register(context)
         if enabled and not running then running = true task.spawn(loop) end
     end
 
-    local shieldPart = nil
-    local function setShield(value)
-        local hrp = getHRP()
-        if value and hrp then
-            if not shieldPart then
-                shieldPart = Instance.new("Part")
-                shieldPart.Name = "ProjectileShield"
-                shieldPart.Size = Vector3.new(20, 20, 20)
-                shieldPart.Transparency = 1
-                shieldPart.CanCollide = false
-                shieldPart.CanTouch = false
-                shieldPart.CanQuery = false
-                shieldPart.Anchored = false
-                shieldPart.Massless = true
-                shieldPart.CustomPhysicalProperties = PhysicalProperties.new(0.01, 0, 0, 0, 0)
-                shieldPart.Material = Enum.Material.ForceField
-                shieldPart.Color = Color3.fromRGB(0, 170, 255)
-                shieldPart.CFrame = hrp.CFrame
-                shieldPart.Parent = hrp.Parent
-
-                local weld = Instance.new("WeldConstraint")
-                weld.Part0 = shieldPart
-                weld.Part1 = hrp
-                weld.Parent = shieldPart
-                shieldPart.AssemblyLinearVelocity = Vector3.zero
-                shieldPart.AssemblyAngularVelocity = Vector3.zero
-            end
-            task.spawn(function()
-                while shieldPart and shieldPart.Parent do
-                    local currentHRP = getHRP()
-                    local projectiles = workspace:FindFirstChild("Projectiles")
-                    if currentHRP and projectiles then
-                        for _, obj in ipairs(projectiles:GetChildren()) do
-                            if obj:IsA("BasePart") and (obj.Position - currentHRP.Position).Magnitude <= 10 then
-                                pcall(function() obj:Destroy() end)
-                            end
-                        end
-                    end
-                    task.wait(0.1)
-                end
-            end)
-        elseif shieldPart then
-            shieldPart:Destroy()
-            shieldPart = nil
-        end
-    end
-
     section:Toggle({
         Title = "กินอาหารอัตโนมัติ",
         Value = false,
@@ -155,15 +149,6 @@ function Player.register(context)
             targetHunger = math.clamp(value, 1, MAX_HUNGER)
         end,
     })
-
-    local shieldSection = tab:Section({Title = "โล่ป้องกันอาวุธระยะไกล", Opened = true})
-    shieldSection:Toggle({
-        Title = "โล่ป้องกัน (ระยะ 10 studs)",
-        Value = false,
-        Callback = setShield,
-    })
-
-    if not shieldSection then return end
 
 end
 
