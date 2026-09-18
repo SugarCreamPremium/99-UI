@@ -1,4 +1,4 @@
--- Version 10.47
+-- Version 1.00
 local Item = {}
 
 function Item.register(context)
@@ -165,18 +165,22 @@ function Item.register(context)
         if not target then return end
         isPulling = true
         task.spawn(function()
-            for _, name in ipairs(getAvailableItemNames()) do
-                if selectedItems[name] then
-                    local count = 0
-                    for _, item in ipairs(items:GetChildren()) do
-                        if item.Name == name and pullSingleItem(item, target) then
-                            count = count + 1
-                            task.wait(0.02)
-                            if count >= maxAmount then break end
+            -- pcall กัน error กลางลูป แล้ว isPulling ค้างเป็น true (กดดึงไม่ได้ไปตลอด)
+            local ok, err = pcall(function()
+                for _, name in ipairs(getAvailableItemNames()) do
+                    if selectedItems[name] then
+                        local count = 0
+                        for _, item in ipairs(items:GetChildren()) do
+                            if item.Name == name and pullSingleItem(item, target) then
+                                count = count + 1
+                                task.wait(0.02)
+                                if count >= maxAmount then break end
+                            end
                         end
                     end
                 end
-            end
+            end)
+            if not ok then warn("Pull error: " .. tostring(err)) end
             isPulling = false
         end)
     end
@@ -189,10 +193,13 @@ function Item.register(context)
         if not target then return end
         isPulling = true
         task.spawn(function()
-            for _, item in ipairs(items:GetChildren()) do
-                pullSingleItem(item, target)
-                task.wait(0.02)
-            end
+            local ok, err = pcall(function()
+                for _, item in ipairs(items:GetChildren()) do
+                    pullSingleItem(item, target)
+                    task.wait(0.02)
+                end
+            end)
+            if not ok then warn("Pull error: " .. tostring(err)) end
             isPulling = false
         end)
     end
@@ -252,8 +259,10 @@ function Item.register(context)
         local map = workspace:FindFirstChild("Map")
         local camp = map and map:FindFirstChild("Campground")
         local mainFire = camp and camp:FindFirstChild("MainFire")
-        local part = mainFire and (mainFire:FindFirstChild("Fire")
-            or mainFire.PrimaryPart or mainFire:FindFirstChildWhichIsA("BasePart"))
+        local fire = mainFire and mainFire:FindFirstChild("Fire")
+        -- "Fire" อาจไม่ใช่ BasePart -> ต้องเช็คชนิดก่อนอ่าน Position
+        local part = fire and fire:IsA("BasePart") and fire
+            or (mainFire and (mainFire.PrimaryPart or mainFire:FindFirstChildWhichIsA("BasePart")))
         return part and part.Position
     end
 
