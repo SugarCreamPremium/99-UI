@@ -1,4 +1,4 @@
--- Version 6.25
+-- Version 7.26
 local Campfire = {}
 
 function Campfire.register(context)
@@ -496,74 +496,95 @@ function Campfire.register(context)
 
             local airHeight = 20
 
-            -- 1. บินดึงเชื้อเพลิงรอบแคมป์ไฟ พร้อมช่วยเด็ก
-            for radius = 20, 1000, 40 do
-                if getCurrentLevel() >= maxLevel and allChildrenCollected(collectedChildren) then break end
-
-                local steps = 50 + math.floor(radius / 40) * 5
-                local circumference = 2 * math.pi * radius
-                local speed = 1000
-                local duration = circumference / speed
-
-                for i = 0, steps do
+            -- เก็บ -> ปล่อย ที่กองไฟวนจนกว่าจะช่วยครบ (หลังปล่อยทุกครั้งเช็ค areAllChildrenRescued
+            -- ถ้ายังไม่ครบ ไปเก็บเด็กที่เหลือกลับมา ปล่อยใหม่ วนไปเรื่อยๆ — กันเด็กค้าง/หลุด)
+            local childrenRounds = 0
+            while not areAllChildrenRescued() and childrenRounds < 5 do
+                -- 1. บินดึงเชื้อเพลิงรอบแคมป์ไฟ พร้อมช่วยเด็ก
+                for radius = 20, 1000, 40 do
                     if getCurrentLevel() >= maxLevel and allChildrenCollected(collectedChildren) then break end
 
-                    local currentHRP = getHRP()
-                    if not currentHRP then break end
-
-                    local alpha = i / steps
-                    local angle = alpha * math.pi * 2
-                    local offsetX = math.cos(angle) * radius
-                    local offsetZ = math.sin(angle) * radius
-                    local circlePos = firePos + Vector3.new(offsetX, airHeight, offsetZ)
-
-                    currentHRP.CFrame = CFrame.new(circlePos)
-                    platform.Position = circlePos - Vector3.new(0, 3, 0)
-
-                    local itemsFolder = workspace:FindFirstChild("Items")
-                    if itemsFolder then
-                        for _, item in ipairs(itemsFolder:GetChildren()) do
-                            if not warpedItems[item] and FIRE_FUEL_ITEMS[item.Name] then
-                                warpItemToFire(item, firePos, warpedItems)
-                            end
-                        end
-                    end
-
-                    collectLostChildren(collectedChildren)
-
-                    task.wait(duration / steps)
-                end
-            end
-
-            -- 2. ถ้าเก็บเด็กยังไม่ครบ 4 คน ให้บินหาใหม่อีกรอบแบบละเอียดและกว้างขึ้น (Extended Range ตามแบบ MainScript)
-            if not allChildrenCollected(collectedChildren) then
-                for radius = 20, 1500, 40 do
-                    local steps = 60
+                    local steps = 50 + math.floor(radius / 40) * 5
                     local circumference = 2 * math.pi * radius
                     local speed = 1000
                     local duration = circumference / speed
 
                     for i = 0, steps do
-                        local angle = (i / steps) * math.pi * 2
-                        local circlePos = firePos + Vector3.new(math.cos(angle) * radius, airHeight, math.sin(angle) * radius)
-                        local curHRP = getHRP()
-                        if curHRP then
-                            curHRP.CFrame = CFrame.new(circlePos)
-                        end
+                        if getCurrentLevel() >= maxLevel and allChildrenCollected(collectedChildren) then break end
+
+                        local currentHRP = getHRP()
+                        if not currentHRP then break end
+
+                        local alpha = i / steps
+                        local angle = alpha * math.pi * 2
+                        local offsetX = math.cos(angle) * radius
+                        local offsetZ = math.sin(angle) * radius
+                        local circlePos = firePos + Vector3.new(offsetX, airHeight, offsetZ)
+
+                        currentHRP.CFrame = CFrame.new(circlePos)
                         platform.Position = circlePos - Vector3.new(0, 3, 0)
 
+                        local itemsFolder = workspace:FindFirstChild("Items")
+                        if itemsFolder then
+                            for _, item in ipairs(itemsFolder:GetChildren()) do
+                                if not warpedItems[item] and FIRE_FUEL_ITEMS[item.Name] then
+                                    warpItemToFire(item, firePos, warpedItems)
+                                end
+                            end
+                        end
+
                         collectLostChildren(collectedChildren)
+
                         task.wait(duration / steps)
                     end
-
-                    -- เช็คหลังครบรอบเท่านั้น
-                    if allChildrenCollected(collectedChildren) then break end
                 end
-            end
 
-            -- ปล่อยเด็กทั้งหมดที่เก็บได้กลับกองไฟ
-            dropAllLostChildren(firePos, collectedChildren)
-            task.wait(0.5)
+                -- 2. ถ้าเก็บเด็กยังไม่ครบ 4 คน ให้บินหาใหม่อีกรอบแบบละเอียดและกว้างขึ้น (Extended Range ตามแบบ MainScript)
+                if not allChildrenCollected(collectedChildren) then
+                    for radius = 20, 1500, 40 do
+                        local steps = 60
+                        local circumference = 2 * math.pi * radius
+                        local speed = 1000
+                        local duration = circumference / speed
+
+                        for i = 0, steps do
+                            local angle = (i / steps) * math.pi * 2
+                            local circlePos = firePos + Vector3.new(math.cos(angle) * radius, airHeight, math.sin(angle) * radius)
+                            local curHRP = getHRP()
+                            if curHRP then
+                                curHRP.CFrame = CFrame.new(circlePos)
+                            end
+                            platform.Position = circlePos - Vector3.new(0, 3, 0)
+
+                            collectLostChildren(collectedChildren)
+                            task.wait(duration / steps)
+                        end
+
+                        -- เช็คหลังครบรอบเท่านั้น
+                        if allChildrenCollected(collectedChildren) then break end
+                    end
+                end
+
+                -- ปล่อยเด็กทั้งหมดที่เก็บได้กลับกองไฟ (ลำดับตายตัว: วาร์ปไฟ -> รอ 0.5 -> ปล่อย)
+                dropAllLostChildren(firePos, collectedChildren)
+                task.wait(0.5)
+
+                -- เช็คหลังปล่อย: ตัวไหนปล่อยไปแล้วแต่ยังหลงทางอยู่ (กลับมา Characters ยัง Lost)
+                -- -> ยกสถานะ "เก็บแล้ว" ออก ให้รอบหน้าบินไปช่วยอีกครั้ง
+                for _, name in ipairs(LOST_CHILD_NAMES) do
+                    if collectedChildren[name] then
+                        local bag2 = player:FindFirstChild("ItemBag")
+                        local bagChild = bag2 and bag2:FindFirstChild(name)
+                        local chars2 = workspace:FindFirstChild("Characters")
+                        local c2 = chars2 and chars2:FindFirstChild(name)
+                        if not bagChild and c2 and not kidAlreadyRescued(c2) then
+                            collectedChildren[name] = nil
+                        end
+                    end
+                end
+
+                childrenRounds = childrenRounds + 1
+            end
 
             -- 3. บินตัดไม้ต่อถ้าเลเวลกองไฟยังไม่ถึง 7
             if getCurrentLevel() < maxLevel then
