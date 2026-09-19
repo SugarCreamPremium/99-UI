@@ -1,4 +1,4 @@
--- Version 7.26
+-- Version 8.50
 local Campfire = {}
 
 function Campfire.register(context)
@@ -420,10 +420,39 @@ function Campfire.register(context)
         "Bear Tree",
     }
 
-    local function getTreesSorted(firePos)
+    -- เช็คว่าต้นนี้ตัดได้ไหม (เลียนแบบ ToolModule.GetModelFromPart ของเกมทุกกรณี):
+    -- 1) ชื่ออยู่ในรายชื่อต้นไม้จากไฟล์ Farm Map
+    -- 2) มี Attribute Resource (เช่น "Wood")
+    -- 3) มี AllowTool_<ชื่อขวานที่ถือ> = ขวานประเภทนี้ตัดต้นนี้ได้
+    -- 4) ToolTier: ต้นไม่มี ToolTier = ตัดได้เสมอ (ไม่สนใจเลเวลขวาน)
+    --    ต้นมี ToolTier + ขวานมี AxeLevel = ต้อง AxeLevel >= 3 (ตรงกับเกม: 3 <= AxeLevel)
+    --    ต้นมี ToolTier + ขวานไม่มี AxeLevel = ต้อง tier ขวาน >= tier ต้น (ตรงกับเกม: ToolTier <= ToolTier)
+    local function canCutTree(tree, tool)
+        if typeof(tree) ~= "Instance" or not tree.Parent then return false end
+        -- เช็คชื่อก่อน (ถูกที่สุด) กรองพวก Part/ของอื่นออกก่อนอ่าน Attribute
+        if not table.find(CHOPPABLE_TREE_NAMES, tree.Name) then return false end
+        if tree:GetAttribute("Destroyed") then return false end
+        if tree:GetAttribute("NotAttackable") then return false end
+        if not tree:GetAttribute("Resource") then return false end
+        local toolName = tool and tool:GetAttribute("ToolName")
+        if not toolName or not tree:GetAttribute("AllowTool_" .. toolName) then return false end
+        local reqTier = tree:GetAttribute("ToolTier")
+        if reqTier then
+            local axeLevel = tool:GetAttribute("AxeLevel")
+            if axeLevel then
+                if axeLevel < 3 then return false end
+            elseif (tool:GetAttribute("ToolTier") or 1) < reqTier then
+                return false
+            end
+        end
+        return true
+    end
+
+    local function getTreesSorted(firePos, tool)
         local found = {}
         for _, item in ipairs(workspace:GetDescendants()) do
-            if item:GetAttribute("Health") and table.find(CHOPPABLE_TREE_NAMES, item.Name) then
+            if item:GetAttribute("Health") and table.find(CHOPPABLE_TREE_NAMES, item.Name)
+                and canCutTree(item, tool) then
                 table.insert(found, item)
             end
         end
@@ -496,81 +525,86 @@ function Campfire.register(context)
 
             local airHeight = 20
 
-            -- เก็บ -> ปล่อย ที่กองไฟวนจนกว่าจะช่วยครบ (หลังปล่อยทุกครั้งเช็ค areAllChildrenRescued
-            -- ถ้ายังไม่ครบ ไปเก็บเด็กที่เหลือกลับมา ปล่อยใหม่ วนไปเรื่อยๆ — กันเด็กค้าง/หลุด)
-            local childrenRounds = 0
-            while not areAllChildrenRescued() and childrenRounds < 5 do
-                -- 1. บินดึงเชื้อเพลิงรอบแคมป์ไฟ พร้อมช่วยเด็ก
-                for radius = 20, 1000, 40 do
-                    if getCurrentLevel() >= maxLevel and allChildrenCollected(collectedChildren) then break end
-
-                    local steps = 50 + math.floor(radius / 40) * 5
-                    local circumference = 2 * math.pi * radius
+            -- บินวนรัศมีขยายแบบละเอียด (ใช้ทั้งรอบค้นหาแรกและรอบไปช่วยเด็กใหม่)
+            local function searchExtended()
+                for radius2 = 20, 1500, 40 do
+                    local steps = 60
+                    local circumference = 2 * math.pi * radius2
                     local speed = 1000
                     local duration = circumference / speed
 
                     for i = 0, steps do
-                        if getCurrentLevel() >= maxLevel and allChildrenCollected(collectedChildren) then break end
-
-                        local currentHRP = getHRP()
-                        if not currentHRP then break end
-
-                        local alpha = i / steps
-                        local angle = alpha * math.pi * 2
-                        local offsetX = math.cos(angle) * radius
-                        local offsetZ = math.sin(angle) * radius
-                        local circlePos = firePos + Vector3.new(offsetX, airHeight, offsetZ)
-
-                        currentHRP.CFrame = CFrame.new(circlePos)
+                        local angle = (i / steps) * math.pi * 2
+                        local circlePos = firePos + Vector3.new(math.cos(angle) * radius2, airHeight, math.sin(angle) * radius2)
+                        local curHRP = getHRP()
+                        if curHRP then
+                            curHRP.CFrame = CFrame.new(circlePos)
+                        end
                         platform.Position = circlePos - Vector3.new(0, 3, 0)
 
-                        local itemsFolder = workspace:FindFirstChild("Items")
-                        if itemsFolder then
-                            for _, item in ipairs(itemsFolder:GetChildren()) do
-                                if not warpedItems[item] and FIRE_FUEL_ITEMS[item.Name] then
-                                    warpItemToFire(item, firePos, warpedItems)
-                                end
-                            end
-                        end
-
                         collectLostChildren(collectedChildren)
-
                         task.wait(duration / steps)
                     end
+
+                    -- เช็คหลังครบรอบเท่านั้น
+                    if allChildrenCollected(collectedChildren) then break end
                 end
+            end
 
-                -- 2. ถ้าเก็บเด็กยังไม่ครบ 4 คน ให้บินหาใหม่อีกรอบแบบละเอียดและกว้างขึ้น (Extended Range ตามแบบ MainScript)
-                if not allChildrenCollected(collectedChildren) then
-                    for radius = 20, 1500, 40 do
-                        local steps = 60
-                        local circumference = 2 * math.pi * radius
-                        local speed = 1000
-                        local duration = circumference / speed
+            -- 1. บินดึงเชื้อเพลิงรอบแคมป์ไฟ พร้อมช่วยเด็ก (เหมือนเดิม)
+            for radius = 20, 1000, 40 do
+                if getCurrentLevel() >= maxLevel and allChildrenCollected(collectedChildren) then break end
 
-                        for i = 0, steps do
-                            local angle = (i / steps) * math.pi * 2
-                            local circlePos = firePos + Vector3.new(math.cos(angle) * radius, airHeight, math.sin(angle) * radius)
-                            local curHRP = getHRP()
-                            if curHRP then
-                                curHRP.CFrame = CFrame.new(circlePos)
+                local steps = 50 + math.floor(radius / 40) * 5
+                local circumference = 2 * math.pi * radius
+                local speed = 1000
+                local duration = circumference / speed
+
+                for i = 0, steps do
+                    if getCurrentLevel() >= maxLevel and allChildrenCollected(collectedChildren) then break end
+
+                    local currentHRP = getHRP()
+                    if not currentHRP then break end
+
+                    local alpha = i / steps
+                    local angle = alpha * math.pi * 2
+                    local offsetX = math.cos(angle) * radius
+                    local offsetZ = math.sin(angle) * radius
+                    local circlePos = firePos + Vector3.new(offsetX, airHeight, offsetZ)
+
+                    currentHRP.CFrame = CFrame.new(circlePos)
+                    platform.Position = circlePos - Vector3.new(0, 3, 0)
+
+                    local itemsFolder = workspace:FindFirstChild("Items")
+                    if itemsFolder then
+                        for _, item in ipairs(itemsFolder:GetChildren()) do
+                            if not warpedItems[item] and FIRE_FUEL_ITEMS[item.Name] then
+                                warpItemToFire(item, firePos, warpedItems)
                             end
-                            platform.Position = circlePos - Vector3.new(0, 3, 0)
-
-                            collectLostChildren(collectedChildren)
-                            task.wait(duration / steps)
                         end
-
-                        -- เช็คหลังครบรอบเท่านั้น
-                        if allChildrenCollected(collectedChildren) then break end
                     end
-                end
 
-                -- ปล่อยเด็กทั้งหมดที่เก็บได้กลับกองไฟ (ลำดับตายตัว: วาร์ปไฟ -> รอ 0.5 -> ปล่อย)
+                    collectLostChildren(collectedChildren)
+
+                    task.wait(duration / steps)
+                end
+            end
+
+            -- 2. ถ้าเก็บเด็กยังไม่ครบ 4 คน ให้บินหาใหม่อีกรอบแบบละเอียดและกว้างขึ้น (เหมือนเดิม)
+            if not allChildrenCollected(collectedChildren) then
+                searchExtended()
+            end
+
+            -- 3. ปล่อยเด็กที่กองไฟเท่านั้น (วาร์ปไฟ -> รอ 0.5 -> เช็คว่าอยู่ที่ไฟ -> ปล่อย)
+            --    ปล่อยเสร็จเช็คทุกครั้งว่าช่วยครบหรือยัง —
+            --    ถ้ายังไม่ได้ช่วย หรือปล่อยผิดที่ (หลุดไปปล่อยกลางทาง) -> บินไปช่วยเด็กที่เหลือมาใหม่ แล้ววนกลับมาปล่อยจนครบ
+            local childrenRounds = 0
+            while not areAllChildrenRescued() and childrenRounds < 5 do
                 dropAllLostChildren(firePos, collectedChildren)
                 task.wait(0.5)
 
                 -- เช็คหลังปล่อย: ตัวไหนปล่อยไปแล้วแต่ยังหลงทางอยู่ (กลับมา Characters ยัง Lost)
-                -- -> ยกสถานะ "เก็บแล้ว" ออก ให้รอบหน้าบินไปช่วยอีกครั้ง
+                -- -> ยกสถานะ "เก็บแล้ว" ออก ให้ไปช่วยอีกครั้ง
                 for _, name in ipairs(LOST_CHILD_NAMES) do
                     if collectedChildren[name] then
                         local bag2 = player:FindFirstChild("ItemBag")
@@ -583,12 +617,16 @@ function Campfire.register(context)
                     end
                 end
 
+                if areAllChildrenRescued() then break end
+
+                -- ยังช่วยไม่ครบ -> บินหาเด็กที่เหลือกลับมา แล้ววนกลับมาปล่อยใหม่
+                searchExtended()
                 childrenRounds = childrenRounds + 1
             end
 
             -- 3. บินตัดไม้ต่อถ้าเลเวลกองไฟยังไม่ถึง 7
             if getCurrentLevel() < maxLevel then
-                local trees = getTreesSorted(firePos)
+                local trees = getTreesSorted(firePos, bestAxe)
                 local damageEvent = ReplicatedStorage:FindFirstChild("RemoteEvents")
                     and ReplicatedStorage.RemoteEvents:FindFirstChild("ToolDamageObject")
                 local ownerId = tostring(player.UserId) .. "_" .. player.UserId
@@ -737,32 +775,6 @@ function Campfire.register(context)
             chopAuraRunning = true
             task.spawn(chopAuraLoop)
         end
-    end
-
-    -- เช็คว่าต้นนี้ตัดได้ไหม (เลียนแบบ ToolModule.GetModelFromPart ของเกม):
-    -- 1) ชื่ออยู่ในรายชื่อต้นไม้จากไฟล์ Farm Map
-    -- 2) มี Attribute Resource (เช่น "Wood")
-    -- 3) มี AllowTool_<ชื่อขวานที่ถือ> = ขวานประเภทนี้ตัดต้นนี้ได้
-    -- 4) ToolTier: ต้นต้องการ tier เท่าไหร่ ขวานต้องพอดีหรือมากกว่า (หรือ AxeLevel >= 3)
-    local function canCutTree(tree, tool)
-        if typeof(tree) ~= "Instance" or not tree.Parent then return false end
-        -- เช็คชื่อก่อน (ถูกที่สุด) กรองพวก Part/ของอื่นออกก่อนอ่าน Attribute
-        if not table.find(CHOPPABLE_TREE_NAMES, tree.Name) then return false end
-        if tree:GetAttribute("Destroyed") then return false end
-        if tree:GetAttribute("NotAttackable") then return false end
-        if not tree:GetAttribute("Resource") then return false end
-        local toolName = tool and tool:GetAttribute("ToolName")
-        if not toolName or not tree:GetAttribute("AllowTool_" .. toolName) then return false end
-        local reqTier = tree:GetAttribute("ToolTier")
-        if reqTier then
-            local axeLevel = tool:GetAttribute("AxeLevel")
-            if axeLevel then
-                if axeLevel < 3 then return false end
-            elseif (tool:GetAttribute("ToolTier") or 1) < reqTier then
-                return false
-            end
-        end
-        return true
     end
 
     local function findCuttableTreesInRange(center, range, tool)
