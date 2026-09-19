@@ -1,4 +1,4 @@
--- Version 12.33
+-- Version 12.41
 local Campfire = {}
 
 function Campfire.register(context)
@@ -832,82 +832,50 @@ function Campfire.register(context)
         return hit and hit.Position or nil
     end
 
-    -- ไล่จุดที่ลองปลูกตามลำดับ: ใต้เท้าเรา (พยายาม "ที่ไหนก็ได้" ก่อน) → ไล่ออกจากกองไฟ
-    -- (เซิร์ฟเวอร์ห้ามปลูกใกล้ไฟ <40 — จุดหลังคือจุดที่ผ่านกฎไฟแน่นอน)
-    local function getPlantSpots()
-        local hrp = getHRP()
-        if not hrp then return {} end
-        local spots = {}
-
-        local function push(pos)
-            local grass = findGrassAt(pos)
-            if grass then table.insert(spots, grass) end
-        end
-
-        push(hrp.Position) -- จุดแรก: ที่เท้าเรา (พยายาม "ที่ไหนก็ได้" ก่อน)
+    -- เช็คว่าจุดนี้ห่างกองไฟพอ (เกม/เซิร์ฟเวอร์ห้ามปลูกใกล้ไฟ <40) — แบบเดียวกับ Plant Sapling Loop.lua
+    local function fireSafe(pos)
         local firePos = getFirePart() and getFirePart().Position
-        if firePos then
-            local away = hrp.Position - firePos
-            local len = away.Magnitude
-            if len > 1 then away = away / len else away = Vector3.new(0, 0, 1) end
-
-            -- ไล่ตรงออกจากกองไฟ ทีละ 15 studs (ถึง 60)
-            for step = 1, 4 do
-                push(hrp.Position + away * (step * 15))
-            end
-            -- เก็บตก: สุ่มรอบตัวในระยะ 40-90 studs (กันอยู่ติดไฟแล้วรอบข้างเป็นน้ำ/หน้าผา)
-            for _ = 1, 8 do
-                local angle = math.random() * math.pi * 2
-                local dist = math.random(40, 90)
-                push(hrp.Position + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
-            end
-        end
-        return spots
+        if not firePos then return true end
+        return (firePos - pos).Magnitude >= 40
     end
 
-    -- ปลูก 1 ต้น: ลองจุดทีละจุดจนกว่าจะมีจุดที่เซิร์ฟเวอร์ยอมรับ
+    -- ปลูก 1 ต้นที่ใต้เท้าเรา (เลียนแบบ Plant Sapling Loop.lua ที่ใช้ได้จริง):
+    -- ไม่ต้องย้าย/drag ตัว Sapling เลย — เอาแค่ตำแหน่งใต้เท้าหา Grass แล้วย้าย Parent
+    -- ไป TempStorage ก่อนยิง remote (ย้ายตัวของมันเองทำให้เซิร์ฟเวอร์ reject)
     local function plantSaplingAtFeet(sapling)
-        local hrp = getHRP()
-        if not hrp or not sapling then return end
-
-        -- ย้าย Sapling มาที่เท้าก่อน (ตำแหน่งตัวเองหา Grass แบบเดียวกับเกม)
-        pcall(function()
-            if sapling:IsA("Model") then
-                sapling:PivotTo(CFrame.new(hrp.Position + Vector3.new(0, 0.5, 0)))
-            elseif sapling:IsA("BasePart") then
-                sapling.CFrame = CFrame.new(hrp.Position + Vector3.new(0, 0.5, 0))
-            end
-        end)
-        task.wait(0.05)
-
         local events = Client and Client.Events
         local temp = ReplicatedStorage:FindFirstChild("TempStorage")
         if not events or not temp then return end
+
+        local hrp = getHRP()
+        if not hrp or not sapling then return end
+
+        local grass = findGrassAt(hrp.Position)
+        if not grass or not fireSafe(grass) then return end
+
         local parent = sapling.Parent
+        sapling.Parent = temp
 
         if sapling:HasTag("Acorn") then
-            -- Acorn: เกมต้องการระยะ 4-60 จาก tree root (ส่งตำแหน่งของมันเอง)
+            -- Acorn: เกมต้องการระยะ 4-60 จาก tree root (ส่งตำแหน่งของตัวมันเอง)
             local remote = events.RequestPlantAcorn
-            if typeof(remote) ~= "Instance" then return end
+            if typeof(remote) ~= "Instance" then
+                sapling.Parent = parent
+                return
+            end
             local pos = resolveTreePos(sapling) or hrp.Position
-            sapling.Parent = temp
             local ok, res = pcall(function() return remote:InvokeServer(sapling, pos) end)
             if not (ok and res and res.Success) then sapling.Parent = parent end
             return
         end
 
         local remote = events.RequestPlantItem
-        if typeof(remote) ~= "Instance" then return end
-
-        for _, grass in ipairs(getPlantSpots()) do
-            sapling.Parent = temp
-            local ok, res = pcall(function() return remote:InvokeServer(sapling, grass) end)
-            if ok and res and res.Success then
-                return
-            end
-            sapling.Parent = parent -- จุดนี้โดน reject -> ลองจุดถัดไป
-            task.wait(0.05)
+        if typeof(remote) ~= "Instance" then
+            sapling.Parent = parent
+            return
         end
+        local ok, res = pcall(function() return remote:InvokeServer(sapling, grass) end)
+        if not (ok and res and res.Success) then sapling.Parent = parent end
     end
 
     local function plantLoop()
@@ -951,7 +919,7 @@ function Campfire.register(context)
     if plantSection then
         plantSection:Toggle({
             Title = "ปลูก Sapling อัตโนมัติ",
-            Desc = "หา Sapling (แท็ก Plantable/Acorn) ใน Items/กระเป๋า ลองปลูกใต้เท้าก่อน ถ้าโดนปฏิเสธจะถอยห่างกองไฟให้",
+            Desc = "หา Sapling แล้วปลูกใต้เท้าทันที (ต้องห่างจากกองไฟ > 40)",
             Value = false,
             Callback = setPlantEnabled,
         })
