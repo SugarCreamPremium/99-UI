@@ -1,4 +1,4 @@
--- Version 11.46
+-- Version 12.06
 local Campfire = {}
 
 function Campfire.register(context)
@@ -383,6 +383,9 @@ function Campfire.register(context)
         end)
     end
 
+    -- รายชื่อต้นไม้ที่ตัดได้: ตรวจจากไฟล์ Farm Map (Small Tree, Snowy Small Tree, TreeBig1-3, "Tree", Bear Tree)
+    -- + ชื่อที่เคยเห็นในเกมเพิ่มเติม (Fairy Small Tree, Birch Tree, Dead Tree1-3)
+    -- ตัวกรองจริงยังเช็ค Attribute Resource + AllowTool_<ขวาน> + ToolTier อีกชั้น (ดู canCutTree)
     local CHOPPABLE_TREE_NAMES = {
         "Small Tree",
         "Fairy Small Tree",
@@ -391,6 +394,11 @@ function Campfire.register(context)
         "Dead Tree1",
         "Dead Tree2",
         "Dead Tree3",
+        "TreeBig1",
+        "TreeBig2",
+        "TreeBig3",
+        "Tree",
+        "Bear Tree",
     }
 
     local function getTreesSorted(firePos)
@@ -671,6 +679,220 @@ function Campfire.register(context)
             end,
         }},
     })
+
+    -- ============================================
+    -- ตัดต้นไม้รอบตัว (Kill Aura) + ปลูกต้นไม้
+    -- ============================================
+    local chopAuraEnabled = false
+    local chopAuraRange = 25
+    local chopAuraRunning = false
+
+    -- forward declaration (ฟังก์ชันจริงอยู่ด้านล่าง): setChopAura เรียกก่อนฟังก์ชันประกาศ
+    -- ถ้าไม่ declare ล่วงหน้า Lua จะ resolve เป็น global nil -> error ตอนกด toggle
+    local chopAuraLoop
+
+    local function setChopAura(value)
+        chopAuraEnabled = value
+        if chopAuraEnabled and not chopAuraRunning then
+            chopAuraRunning = true
+            task.spawn(chopAuraLoop)
+        end
+    end
+
+    -- เช็คว่าต้นนี้ตัดได้ไหม (เลียนแบบ ToolModule.GetModelFromPart ของเกม):
+    -- 1) ชื่ออยู่ในรายชื่อต้นไม้จากไฟล์ Farm Map
+    -- 2) มี Attribute Resource (เช่น "Wood")
+    -- 3) มี AllowTool_<ชื่อขวานที่ถือ> = ขวานประเภทนี้ตัดต้นนี้ได้
+    -- 4) ToolTier: ต้นต้องการ tier เท่าไหร่ ขวานต้องพอดีหรือมากกว่า (หรือ AxeLevel >= 3)
+    local function canCutTree(tree, tool)
+        if typeof(tree) ~= "Instance" or not tree.Parent then return false end
+        if tree:GetAttribute("Destroyed") then return false end
+        if tree:GetAttribute("NotAttackable") then return false end
+        if not table.find(CHOPPABLE_TREE_NAMES, tree.Name) then return false end
+        if not tree:GetAttribute("Resource") then return false end
+        local toolName = tool and tool:GetAttribute("ToolName")
+        if not toolName or not tree:GetAttribute("AllowTool_" .. toolName) then return false end
+        local reqTier = tree:GetAttribute("ToolTier")
+        if reqTier then
+            local axeLevel = tool:GetAttribute("AxeLevel")
+            if axeLevel then
+                if axeLevel < 3 then return false end
+            elseif (tool:GetAttribute("ToolTier") or 1) < reqTier then
+                return false
+            end
+        end
+        return true
+    end
+
+    local function findCuttableTreesInRange(center, range, tool)
+        local found = {}
+        for _, item in ipairs(workspace:GetDescendants()) do
+            if canCutTree(item, tool) then
+                local pos = resolveTreePos(item)
+                if pos and (pos - center).Magnitude <= range then
+                    table.insert(found, item)
+                end
+            end
+        end
+        return found
+    end
+
+    chopAuraLoop = function()
+        local damageEvent = ReplicatedStorage:FindFirstChild("RemoteEvents")
+            and ReplicatedStorage.RemoteEvents:FindFirstChild("ToolDamageObject")
+        local ownerId = tostring(player.UserId) .. "_" .. player.UserId
+        while chopAuraEnabled do
+            local hrp = getHRP()
+            local bestAxe = getBestAxe()
+            local axe = hrp and checkAndReequipAxe(bestAxe)
+            if hrp and axe and damageEvent then
+                -- ตัดพร้อมกันทุกต้นในระยะ (ยิงล็อตเดียวทุก ~0.2 วิ)
+                for _, tree in ipairs(findCuttableTreesInRange(hrp.Position, chopAuraRange, axe)) do
+                    local target = tree
+                    pcall(function()
+                        damageEvent:InvokeServer(target, axe, ownerId, hrp.CFrame, false)
+                    end)
+                end
+                task.wait(0.2)
+            else
+                task.wait(0.5)
+            end
+        end
+        chopAuraRunning = false
+    end
+
+    -- ============================================
+    -- ปลูกต้นไม้ด้วย Sapling ที่เท้าของเรา
+    -- ============================================
+    local plantEnabled = false
+    local plantRunning = false
+
+    -- หา Sapling ที่ปลูกได้ (ใน Items หรือกระเป๋า, ยังไม่ได้เป็นของคนอื่น)
+    local function findSapling()
+        local candidates = {}
+        local items = workspace:FindFirstChild("Items")
+        if items then
+            for _, item in ipairs(items:GetChildren()) do
+                table.insert(candidates, item)
+            end
+        end
+        local inv = player:FindFirstChild("Inventory")
+        if inv then
+            for _, item in ipairs(inv:GetChildren()) do
+                table.insert(candidates, item)
+            end
+        end
+        for _, item in ipairs(candidates) do
+            if item.Name == "Sapling"
+                and (item:HasTag("Plantable") or item:HasTag("Acorn")) then
+                local owner = item:GetAttribute("Owner")
+                if not owner or owner == player.UserId then
+                    return item
+                end
+            end
+        end
+        return nil
+    end
+
+    -- หาพื้นดินใต้จุด (Raycast ลงล่าง เฉพาะชั้น Ground/Snow แบบเดียวกับเกม)
+    local function findGrassAt(pos)
+        local map = workspace:FindFirstChild("Map")
+        local ground = map and map:FindFirstChild("Ground")
+        if not ground then return nil end
+        local params = RaycastParams.new()
+        params.FilterDescendantsInstances = { ground, map:FindFirstChild("Snow") }
+        params.FilterType = Enum.RaycastFilterType.Include
+        params.IgnoreWater = true
+        local hit = workspace:Raycast(pos, Vector3.new(0, -55, 0), params)
+        return hit and hit.Position or nil
+    end
+
+    -- ปลูก 1 ต้นที่เท้าเรา (เลียนแบบ AttemptPlantItem ของเกม)
+    local function plantSaplingAtFeet(sapling)
+        local hrp = getHRP()
+        if not hrp or not sapling then return end
+
+        -- ย้าย Sapling มาที่เท้าก่อน (ใช้ตำแหน่งตัวเองหา Grass แบบเดียวกับเกม)
+        pcall(function()
+            if sapling:IsA("Model") then
+                sapling:PivotTo(CFrame.new(hrp.Position + Vector3.new(0, 0.5, 0)))
+            elseif sapling:IsA("BasePart") then
+                sapling.CFrame = CFrame.new(hrp.Position + Vector3.new(0, 0.5, 0))
+            end
+        end)
+        task.wait(0.05)
+
+        local events = Client and Client.Events
+        local temp = ReplicatedStorage:FindFirstChild("TempStorage")
+        if not events or not temp then return end
+        local parent = sapling.Parent
+
+        if sapling:HasTag("Acorn") then
+            -- Acorn: เกมต้องการระยะ 4-60 จาก tree root (ส่งตำแหน่งของมันเอง)
+            local remote = events.RequestPlantAcorn
+            if typeof(remote) ~= "Instance" then return end
+            local pos = resolveTreePos(sapling) or hrp.Position
+            sapling.Parent = temp
+            local ok, res = pcall(function() return remote:InvokeServer(sapling, pos) end)
+            if not (ok and res and res.Success) then sapling.Parent = parent end
+        else
+            local remote = events.RequestPlantItem
+            if typeof(remote) ~= "Instance" then return end
+            local at = resolveTreePos(sapling) or hrp.Position
+            local grass = findGrassAt(at) or findGrassAt(hrp.Position)
+            if not grass then return end
+            sapling.Parent = temp
+            local ok, res = pcall(function() return remote:InvokeServer(sapling, grass) end)
+            if not (ok and res and res.Success) then sapling.Parent = parent end
+        end
+    end
+
+    local function plantLoop()
+        while plantEnabled do
+            local sapling = findSapling()
+            if sapling then
+                pcall(plantSaplingAtFeet, sapling)
+                task.wait(0.8)
+            else
+                task.wait(1)
+            end
+        end
+        plantRunning = false
+    end
+
+    local function setPlantEnabled(value)
+        plantEnabled = value
+        if plantEnabled and not plantRunning then
+            plantRunning = true
+            task.spawn(plantLoop)
+        end
+    end
+
+    local chopSection = tab:Section({Title = "ตัดต้นไม้รอบตัว", Opened = true})
+    if chopSection then
+        chopSection:Toggle({
+            Title = "ตัดต้นไม้ Kill Aura",
+            Desc = "ตัดทุกต้นที่ตัดได้ในระยะพร้อมกัน (ต้องถือขวาน) เริ่มจาก self-check ToolTier อัตโนมัติ",
+            Value = false,
+            Callback = setChopAura,
+        })
+        chopSection:Slider({
+            Title = "ระยะตัด",
+            Value = {Min = 5, Max = 100, Default = chopAuraRange},
+            Step = 1,
+            Callback = function(value) chopAuraRange = math.clamp(value, 5, 100) end,
+        })
+    end
+
+    local plantSection = tab:Section({Title = "ปลูกต้นไม้", Opened = true})
+    if plantSection then
+        plantSection:Toggle({
+            Title = "ปลูก Sapling อัตโนมัติ",
+            Desc = "หา Sapling ใน Items/กระเป๋า แล้วปลูกที่เท้าของเราเรื่อยๆ",
+            Value = false,
+            Callback = setPlantEnabled,
+        })
+    end
 end
 
 return Campfire
