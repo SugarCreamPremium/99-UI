@@ -1,4 +1,4 @@
--- Version 4.48
+-- Version 4.55
 local Item = {}
 
 function Item.register(context)
@@ -213,7 +213,6 @@ function Item.register(context)
 
     -- ===== เปิดหีบ =====
     local openingChests = false
-    local chestParagraph -- ไว้เขียน Desc สถานะตอนเปิดหีบ (ยิง SetDesc ได้)
 
     local function getHRP()
         local char = player.Character
@@ -319,19 +318,8 @@ function Item.register(context)
             local wasAnchored = firstHRP.Anchored
             pcall(function() firstHRP.Anchored = true end) -- ล็อคตัว
 
-            -- นับกล่องที่เปิดได้ ณ ตอนนี้ (มี ProximityPrompt อยู่) แล้วโชว์ใน Desc
-            local total = 0
-            for _, chest in ipairs(getChests()) do
-                local p = getChestPrompt(chest)
-                if p and p.Parent then total = total + 1 end
-            end
-            if total > 0 and chestParagraph and chestParagraph.SetDesc then
-                chestParagraph:SetDesc(string.format("เปิดได้ %d กล่อง | เปิดไปแล้ว 0/%d", total, total))
-            end
-
             -- วนเปิดหีบ จนกว่าเช็คใหม่แล้วจะไม่เหลือ Proximity ไหนเปิดได้
             local attempts = {}
-            local opened = 0
             for pass = 1, 10 do
                 local pending = {}
                 for _, chest in ipairs(getChests()) do
@@ -369,13 +357,6 @@ function Item.register(context)
                     if firePrompt(prompt) then
                         attempts[chest] = (attempts[chest] or 0) + 1
                         task.wait(0.1)
-                    end
-                    -- เปิดเสร็จ เกมจะลบ ProximityAttachment (prompt พ่อแม่หาย) -> นับ progress
-                    if not prompt.Parent then
-                        opened = opened + 1
-                        if chestParagraph and chestParagraph.SetDesc then
-                            chestParagraph:SetDesc(string.format("เปิดได้ %d กล่อง | เปิดไปแล้ว %d/%d", total, opened, total))
-                        end
                     end
                 end
             end
@@ -505,7 +486,7 @@ function Item.register(context)
 
     local chestSection = tab:Section({Title = "เปิดหีบ", Opened = true})
     if chestSection then
-        chestParagraph = chestSection:Paragraph({
+        chestSection:Paragraph({
             Title = "เปิดหีบทั้งหมด",
             Desc = "วาร์ปเปิดหีบทุกกล่อง แล้วกลับกองไฟ (ถ้าเปิดหมดแล้ว กดแล้วไม่ทำอะไร)",
             Buttons = {{
