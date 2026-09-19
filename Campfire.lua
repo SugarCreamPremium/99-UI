@@ -1,4 +1,4 @@
--- Version 8.50
+-- Version 9.45
 local Campfire = {}
 
 function Campfire.register(context)
@@ -599,7 +599,10 @@ function Campfire.register(context)
             --    ปล่อยเสร็จเช็คทุกครั้งว่าช่วยครบหรือยัง —
             --    ถ้ายังไม่ได้ช่วย หรือปล่อยผิดที่ (หลุดไปปล่อยกลางทาง) -> บินไปช่วยเด็กที่เหลือมาใหม่ แล้ววนกลับมาปล่อยจนครบ
             local childrenRounds = 0
-            while not areAllChildrenRescued() and childrenRounds < 5 do
+            -- ต้องเข้าวนปล่อยอย่างน้อย 1 รอบเสมอ: อย่าไปเช็ค areAllChildrenRescued เป็นเงื่อนไขเข้า
+            -- เพราะเด็กที่อยู่ในกระสอบ (ItemBag) จะไม่อยู่ใน Characters -> areAllChildrenRescued คืน true
+            -- ทั้งที่ยังไม่ได้ปล่อย -> ถ้าใช้เป็นเงื่อนไขเข้า จะไม่ปล่อยเลย (เด็กค้างในกระสอบจนจบแล้ววาร์ปกลับ)
+            while childrenRounds < 5 do
                 dropAllLostChildren(firePos, collectedChildren)
                 task.wait(0.5)
 
