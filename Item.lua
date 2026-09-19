@@ -1,4 +1,4 @@
--- Version 3.14
+-- Version 4.19
 local Item = {}
 
 function Item.register(context)
@@ -213,11 +213,7 @@ function Item.register(context)
 
     -- ===== เปิดหีบ =====
     local openingChests = false
-
-    local function getHRP()
-        local char = player.Character
-        return char and char:FindFirstChild("HumanoidRootPart")
-    end
+    local chestParagraph -- ไว้เขียน Desc สถานะตอนเปิดหีบ (ยิง SetDesc ได้)
 
     local function getChests()
         local items = workspace:FindFirstChild("Items")
@@ -264,15 +260,6 @@ function Item.register(context)
         return ok
     end
 
-    local function getChestPos(chest)
-        if chest:IsA("Model") then
-            local part = chest.PrimaryPart or chest:FindFirstChildWhichIsA("BasePart", true)
-            if part then return part.Position end
-            return chest:GetPivot().Position
-        end
-        return chest.Position
-    end
-
     local function getFirePos()
         local map = workspace:FindFirstChild("Map")
         local camp = map and map:FindFirstChild("Campground")
@@ -300,53 +287,43 @@ function Item.register(context)
 
         openingChests = true
         task.spawn(function()
-            local firstHRP = getHRP()
-            if not firstHRP then
-                openingChests = false
-                return
+            -- นับกล่องที่เปิดได้ ณ ตอนนี้ (มี ProximityPrompt อยู่) แล้วโชว์ใน Desc
+            local total = 0
+            for _, chest in ipairs(getChests()) do
+                local p = getChestPrompt(chest)
+                if p and p.Parent then total = total + 1 end
             end
-            local wasAnchored = firstHRP.Anchored
-            pcall(function() firstHRP.Anchored = true end) -- ล็อคตัว
+            if total > 0 and chestParagraph and chestParagraph.SetDesc then
+                chestParagraph:SetDesc(string.format("เปิดได้ %d กล่อง | เปิดไปแล้ว 0/%d", total, total))
+            end
 
-            -- วนเปิดหีบ จนกว่าเช็คใหม่แล้วจะไม่เหลือ Proximity ไหนเปิดได้
-            local attempts = {}
-            for pass = 1, 10 do
-                local pending = {}
-                for _, chest in ipairs(getChests()) do
-                    local prompt = getChestPrompt(chest)
-                    -- ไม่บังคับ prompt.Enabled: เกมปิด prompt ชั่วคราว (LOS/cooldown)
-                    -- แต่ยิง Triggered ตรงๆ ยังเปิดได้ (ProcessInteraction เช็คแค่ Alive)
-                    if prompt and prompt.Parent and (attempts[chest] or 0) < 6 then
-                        table.insert(pending, {chest, prompt})
-                    end
-                end
-                if #pending == 0 then break end
+            -- ไม่วาร์ปไปหากล่องแล้ว: ยิง Triggered ตรงๆ เกมไม่เช็คระยะในเส้นทางนี้
+            -- (PromptHandler ต่อ ProcessInteraction ไว้ถาวรที่ Triggered) -> เปิดจากจุดยืนได้เลย
+            -- รอฟื้นก่อน (ProcessInteraction ปัดทุกการเปิดถ้าไม่ Alive) แต่ไม่ค้างรอถ้าตายนาน
+            local waited = 0
+            while Client and Client.PlayerHandler and not Client.PlayerHandler.Alive and waited < 5 do
+                task.wait(1)
+                waited = waited + 1
+            end
 
-                for _, entry in ipairs(pending) do
-                    local hrp = getHRP()
-                    if not hrp then break end
-                    local chest, prompt = entry[1], entry[2]
-
-                    -- เกมปัดการเปิดทุกครั้งถ้าไม่ Alive (ProcessInteraction เช็ค) -> รอฟื้น
-                    -- ก่อน ไม่เผา attempts: นับ attempts ต่อเมื่อยิงจริงเท่านั้น
-                    if Client and Client.PlayerHandler and not Client.PlayerHandler.Alive then
-                        task.wait(1)
-                    end
-
+            -- เปิดเสร็จ เกมจะลบ ProximityAttachment (prompt พ่อแม่หาย) -> นับ progress จาก prompt ที่ยังอยู่
+            local opened = 0
+            for _, chest in ipairs(getChests()) do
+                local prompt = getChestPrompt(chest)
+                if prompt and prompt.Parent then
                     -- กล่อง Locked เกมจะโชว์ "ล็อก" แล้วไม่เปิด (ChestOpened เช็ค Locked ก่อน destroy)
                     -- -> ปลดล็อกก่อนยิง กล่องจะได้ผ่านเกตไปเปิดจริง
                     if chest:GetAttribute("Locked") then
                         chest:SetAttribute("Locked", false)
                     end
-
-                    local pos = getChestPos(chest)
-                    if pos then
-                        pcall(function() hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0)) end)
+                    if firePrompt(prompt) then
                         task.wait(0.2)
                     end
-                    if firePrompt(prompt) then
-                        attempts[chest] = (attempts[chest] or 0) + 1
-                        task.wait(0.3)
+                    if not prompt.Parent then
+                        opened = opened + 1
+                        if chestParagraph and chestParagraph.SetDesc then
+                            chestParagraph:SetDesc(string.format("เปิดได้ %d กล่อง | เปิดไปแล้ว %d/%d", total, opened, total))
+                        end
                     end
                 end
             end
@@ -355,16 +332,6 @@ function Item.register(context)
             for _, chest in ipairs(getChests()) do
                 local p = getChestPrompt(chest)
                 if p then pcall(function() p:InputHoldEnd() end) end
-            end
-
-            -- ปลดล็อค + วาร์ปกลับกองไฟ
-            local endHRP = getHRP()
-            if endHRP then
-                pcall(function() endHRP.Anchored = wasAnchored end)
-                local firePos = getFirePos()
-                if firePos then
-                    pcall(function() endHRP.CFrame = CFrame.new(firePos + Vector3.new(5, 3, 0)) end)
-                end
             end
             openingChests = false
         end)
@@ -476,9 +443,9 @@ function Item.register(context)
 
     local chestSection = tab:Section({Title = "เปิดหีบ", Opened = true})
     if chestSection then
-        chestSection:Paragraph({
+        chestParagraph = chestSection:Paragraph({
             Title = "เปิดหีบทั้งหมด",
-            Desc = "วาร์ปเปิดหีบทุกกล่อง แล้วกลับกองไฟ (ถ้าเปิดหมดแล้ว กดแล้วไม่ทำอะไร)",
+            Desc = "เปิดกล่องทั้งหมดจากจุดที่ยืนอยู่ (ไม่วาร์ป)",
             Buttons = {{
                 Title = "เปิดหีบทั้งหมด",
                 Icon = "lock-open",
