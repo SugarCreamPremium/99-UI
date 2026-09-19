@@ -1,4 +1,4 @@
--- Version 1.00
+-- Version 10.54
 local Item = {}
 
 function Item.register(context)
@@ -156,6 +156,10 @@ function Item.register(context)
         table.sort(result)
         return result
     end
+
+    -- forward declaration: ฟังก์ชันจริงประกาศด้านล่าง (จุดดึงของ) แต่ pull functions เรียกก่อน
+    -- ถ้าไม่ declare ล่วงหน้า Lua จะ resolve เป็น global nil -> error ตอนกดดึง
+    local getPullTargetPosition
 
     local function pullSelectedItems()
         if isPulling or not next(selectedItems) then return end
@@ -397,7 +401,7 @@ function Item.register(context)
     }
     local pullTarget = "head"
 
-    local function getPullTargetPosition()
+    getPullTargetPosition = function()
         if pullTarget == "fire" then
             local firePos = getFirePos()
             if firePos then return firePos + Vector3.new(0, 10, 0) end
