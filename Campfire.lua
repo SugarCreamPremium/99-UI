@@ -1,4 +1,4 @@
--- Version 12.41
+-- Version 12.45
 local Campfire = {}
 
 function Campfire.register(context)
@@ -785,12 +785,12 @@ function Campfire.register(context)
     local plantEnabled = false
     local plantRunning = false
 
-    -- ของที่เกมรับปลูกจริง: มี Interaction Item/Tool + แท็ก Plantable/Acorn
-    -- (เหมือน AttemptPlantItem ของเกม — ของที่ชื่อ "Sapling" แต่ไม่มีแท็ก = เซิร์ฟเวอร์ reject)
+    -- ของที่รับลองปลูกได้: ชื่อ Sapling/Giant Sapling หรือมีแท็ก Plantable/Acorn
+    -- (ตรงกับ findRealSapling ของ Plant Sapling Loop.lua ที่ใช้ได้จริง —
+    -- อย่าไปบังคับ Interaction Attribute เพราะของจริงในเกมอาจไม่มี)
     local function isPlantable(item)
-        local interaction = item:GetAttribute("Interaction")
-        if interaction ~= "Item" and interaction ~= "Tool" then return false end
-        return item:HasTag("Plantable") or item:HasTag("Acorn")
+        return item.Name == "Sapling" or item.Name == "Giant Sapling"
+            or item:HasTag("Plantable") or item:HasTag("Acorn")
     end
 
     -- หา Sapling ที่ปลูกได้ (ใน Items หรือกระเป๋า, ยังไม่ได้เป็นของคนอื่น)
