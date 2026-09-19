@@ -1,4 +1,4 @@
--- Version 9.45
+-- Version 10.32
 local Campfire = {}
 
 function Campfire.register(context)
@@ -375,8 +375,10 @@ function Campfire.register(context)
             local events = ReplicatedStorage:FindFirstChild("RemoteEvents")
             local StartDrag = events and events:FindFirstChild("RequestStartDraggingItem")
             local StopDrag = events and events:FindFirstChild("StopDraggingItem")
+            -- เก็บผล drag เหมือน Item.lua: สำเร็จเท่านั้นถึงนับว่าดึงเสร็จ
+            local dragOk = false
             if StartDrag then
-                pcall(function() StartDrag:FireServer(item) end)
+                dragOk = pcall(function() StartDrag:FireServer(item) end)
             end
             task.wait(0.02)
 
@@ -399,6 +401,12 @@ function Campfire.register(context)
 
             -- 4) เช็คซ้ำอีกรอบหลัง server กลับสถานะ (กัน anchor ค้างจากฝั่งเกม)
             task.delay(0.4, function() releaseAnchors(parts) end)
+
+            -- 5) drag ไม่สำเร็จ -> ปลดล็อกให้รอบหน้าลองดึงใหม่ (เหมือน Item.lua: นับเฉพาะ dragOk)
+            --    (ยังต้องอ้างสิทธิ์ warped[item] ไว้ก่อน drag เสมอ กัน 2 รอบติดกันยิง drag ซ้อนกันตอนบิน)
+            if not dragOk then
+                warped[item] = nil
+            end
         end)
     end
 
