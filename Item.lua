@@ -1,4 +1,4 @@
--- Version 4.27
+-- Version 4.48
 local Item = {}
 
 function Item.register(context)
@@ -245,7 +245,17 @@ function Item.register(context)
     local function firePrompt(prompt)
         if not prompt then return false end
         local ok
-        -- ยิง Triggered ตรงๆ (เส้นทางเดียวกับกดจริง — เกมต่อ ProcessInteraction ไว้ที่
+        -- วิธีที่ 1: fireproximityprompt (ฟังก์ชัน executor แบบเดียวกับ Infinity Yield)
+        -- จำลองกดจริงฝั่ง engine+server ไม่สนว่าป้าย/หน้าต่าง prompt จะขึ้นหรือไม่
+        -- -> กล่องที่ยิง Triggered ตรงๆ แล้วไม่ติดเพราะป้ายไม่ขึ้น จะเปิดด้วยวิธีนี้
+        if type(fireproximityprompt) == "function" then
+            local fired = pcall(fireproximityprompt, prompt, 100)
+            if fired and not prompt.Parent then
+                -- ป้ายถูกลบ = เกมเปิดกล่องสำเร็จแล้ว (ChestOpened ลบ ProximityAttachment)
+                return true
+            end
+        end
+        -- วิธีที่ 2: ยิง Triggered ตรงๆ (เส้นทางเดียวกับกดจริง — เกมต่อ ProcessInteraction ไว้ที่
         -- ProximityInteraction.Triggered) ไม่สร้าง hold state เลย -> PromptGui "กด E"
         -- ไม่ค้างบนจอแม้ prompt จะโดน destroy กลางคัน (PromptHidden ไม่ยิง = label ค้าง)
         -- ไม่บังคับ prompt.Enabled: เกมปิด prompt ชั่วคราว (LOS/cooldown) แต่ยิง Triggered
@@ -253,7 +263,7 @@ function Item.register(context)
         -- พลาดเพราะช่วงปิดชั่วคราว จะได้เปิดในรอบนี้เลย ไม่ต้องรอกดรอบสอง
         ok = pcall(function() prompt.Triggered:Fire(player) end)
         if not ok then
-            -- เก็บตกเครื่องเล่นที่ Fire สัญญาณไม่ได้ -> จำลองกดค้างแทน
+            -- วิธีที่ 3: จำลองกดค้างแทน (เก็บตกเครื่องเล่นที่ Fire สัญญาณไม่ได้)
             pcall(function() prompt.HoldDuration = 0 end)
             pcall(function() prompt:InputHoldBegin() end)
             task.wait(0.05)
