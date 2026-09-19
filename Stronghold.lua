@@ -1,4 +1,4 @@
--- Version 11.46
+-- Version 3.43
 local Stronghold = {}
 
 function Stronghold.register(context)
@@ -561,7 +561,7 @@ function Stronghold.register(context)
 
     section:Paragraph({
         Title = "วาร์ปไปหน้า Stronghold",
-        Desc = "วาร์ปไปยังป้ายหน้าประตูทางเข้า Stronghold (ต้องเปิดแมพก่อน)",
+        Desc = "วาร์ปไปยัง Stronghold (ต้องเปิดแมพก่อน)",
         Buttons = {{
             Title = "วาร์ป",
             Icon = "map-pin",
@@ -569,13 +569,12 @@ function Stronghold.register(context)
             local hrp = getHRP()
             local sh = getStrongholdRoot()
             local building = sh and sh:FindFirstChild("Building")
-            local sign = building and building:FindFirstChild("Sign")
-            if hrp and sign then
-                local signPos = sign:IsA("BasePart") and sign.Position
-                    or (sign:IsA("Model") and sign:GetPivot().Position)
-                    or (sign:FindFirstChildWhichIsA("BasePart", true) and sign:FindFirstChildWhichIsA("BasePart", true).Position)
-                if signPos then
-                    hrp.CFrame = CFrame.new(signPos + Vector3.new(0, 3, 5))
+            if hrp and building then
+                local buildPos = building:IsA("BasePart") and building.Position
+                    or (building:IsA("Model") and building:GetPivot().Position)
+                    or (building:FindFirstChildWhichIsA("BasePart", true) and building:FindFirstChildWhichIsA("BasePart", true).Position)
+                if buildPos then
+                    hrp.CFrame = CFrame.new(buildPos + Vector3.new(0, 3, 0))
                 end
             end
             end,
