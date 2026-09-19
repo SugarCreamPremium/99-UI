@@ -1,4 +1,4 @@
--- Version 1.32
+-- Version 1.39
 local Item = {}
 
 function Item.register(context)
@@ -51,6 +51,8 @@ function Item.register(context)
         end
         local map = workspace:FindFirstChild("Map")
         if map and item:IsDescendantOf(map) then return false end
+        -- ItemChest = โมเดลกล่อง ไม่ใช่ของใช้จริง อย่าเอาเข้าลิสต์ดึง
+        if item:GetAttribute("Interaction") == "ItemChest" then return false end
         -- เกมไม่ได้ตั้ง Interaction "Item"/"Tool" ให้ทุกไอเทมจริง (ขวาน/ดรอปของหลายอันไม่มีแอตทริบิวต์นี้)
         -- ไม่กรองตรงนี้แล้ว ปล่อยให้ server ตัดสินตอนดึง ถ้า server ปฏิเสธของก็แค่ไม่ขยับ
         -- Owner ก็ไม่กรอง (ขวาน/ของที่คนอื่นดรอปไว้มักมี Owner เป็นคนอื่น) แต่ดึงมาได้ในเกม
