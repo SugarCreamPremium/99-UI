@@ -1,4 +1,4 @@
--- Version 1.39
+-- Version 2.21
 local Item = {}
 
 function Item.register(context)
@@ -326,9 +326,9 @@ function Item.register(context)
                     local pos = getChestPos(chest)
                     if pos then
                         pcall(function() hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0)) end)
-                        task.wait(0.1)
+                        task.wait(0.2)
                     end
-                    if firePrompt(prompt) then task.wait(0.25) end
+                    if firePrompt(prompt) then task.wait(0.3) end
                 end
             end
 
