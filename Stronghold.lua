@@ -1,4 +1,4 @@
--- Version 11.02
+-- Version 11.46
 local Stronghold = {}
 
 function Stronghold.register(context)
@@ -186,13 +186,59 @@ function Stronghold.register(context)
         return list
     end
 
+    -- ============================================
+    -- เช็ค "จบรอบ" แบบเดียวกับ MainScript (Module_Stronghold.lua):
+    -- FinalGate ขยับเกิน 1 stud จากจุดที่จับตอนประตูปิด อ่านติดกัน 3 ครั้ง = เคลียร์
+    -- ============================================
+    local GATE_MOVE_THRESHOLD = 1     -- ขยับเกิน 1 stud ถือว่าเปลี่ยนจริง
+    local CLEAR_CONFIRM_COUNT = 3     -- อ่านติดกัน 3 ครั้ง กันค่ากระพริบ
+    local FIGHT_MIN_SECONDS = 10      -- 10 วิแรกไม่ตรวจ กันประตูขยับตอนเปิดด่าน
+
+    local gateClearCheckStart = os.clock()
+    local gateClearHits = 0
+    local gateOrigin = nil
+
+    local function getFinalGatePart()
+        local gate = workspace:FindFirstChild("FinalGate", true)
+        if not gate then return nil end
+        if gate:IsA("BasePart") then return gate end
+        if gate:IsA("Model") then
+            return gate.PrimaryPart or gate:FindFirstChildWhichIsA("BasePart", true)
+        end
+        return nil
+    end
+
     local function isStrongholdCleared()
-        local sh = getStrongholdRoot()
-        local func = sh and sh:FindFirstChild("Functional")
-        local gate = func and func:FindFirstChild("FinalGate")
-        if not gate then return false end
-        local part = gate:IsA("BasePart") and gate or gate:FindFirstChildWhichIsA("BasePart", true)
-        return part and part.CanCollide == false
+        if os.clock() - gateClearCheckStart < FIGHT_MIN_SECONDS then
+            return false
+        end
+
+        local part = getFinalGatePart()
+        if not part then
+            gateClearHits = 0
+            return false
+        end
+
+        -- จับตำแหน่งแรกไม่ทัน (เช่นเปิด toggle ตอน stronghold เปิดอยู่) จับตอนนี้แล้วเริ่มนับใหม่
+        if not gateOrigin then
+            gateOrigin = part.Position
+            gateClearHits = 0
+            return false
+        end
+
+        if (part.Position - gateOrigin).Magnitude > GATE_MOVE_THRESHOLD then
+            gateClearHits = gateClearHits + 1
+        else
+            gateClearHits = 0
+        end
+
+        return gateClearHits >= CLEAR_CONFIRM_COUNT
+    end
+
+    -- เริ่มตรวจรอบใหม่: รีเซ็ตเวลา/ตัวนับ (gateOrigin ไม่แตะ เก็บตำแหน่งตอนปิดไว้)
+    local function beginClearedCheck()
+        gateClearCheckStart = os.clock()
+        gateClearHits = 0
     end
 
     -- ปรับเลือดเป็น 0 (ทั้ง Humanoid และ Attribute) ตาม MainScript
@@ -286,13 +332,24 @@ function Stronghold.register(context)
                 if typeof(fireproximityprompt) == "function" then
                     fireproximityprompt(prompt, 0, true)
                 else
+                    -- InputHoldBegin ค้างได้ถ้า prompt โดน destroy กลาง hold (เกมลบ ProximityAttachment ทิ้งตอนเปิดสำเร็จ)
+                    -- ต้องปิดด้วย InputHoldEnd ใน pcall เสมอ ไม่งั้น PromptGui ค้างกลางจอแบบในรูป
                     pcall(function() prompt.HoldDuration = 0 end)
-                    prompt:InputHoldBegin()
+                    pcall(function() prompt:InputHoldBegin() end)
                     task.wait(0.1)
-                    prompt:InputHoldEnd()
+                    pcall(function() prompt:InputHoldEnd() end)
                 end
                 task.wait(0.3)
             end
+            -- เก็บตก: ยิง InputHoldEnd ซ้ำอีกรอบกัน UI ค้าง แล้ววาร์ปหนีให้พ้นระยะ prompt
+            pcall(function() prompt:InputHoldEnd() end)
+        end
+        -- วาร์ปไปรอที่ TriggerZone (แทนกองไฟ) เพื่อรอรอบหน้าสตรองโฮลด์เปิดใหม่
+        -- ตัวละครอยู่ที่จุดเริ่มเวฟแล้ว และพ้นระยะ prompt กล่องเพชรด้วย
+        local tz = getTriggerZone()
+        local hrp2 = getHRP()
+        if tz and hrp2 then
+            pcall(function() hrp2.CFrame = CFrame.new(tz.Position + Vector3.new(0, 2, 0)) end)
         end
     end
 
@@ -328,6 +385,52 @@ function Stronghold.register(context)
         end
     end)
 
+    -- หา Item Bag ใน Inventory (Attribute ToolName == "Item Bag")
+    local function getItemBag()
+        local inv = player:FindFirstChild("Inventory")
+        if not inv then return nil end
+        for _, tool in ipairs(inv:GetChildren()) do
+            if tool:GetAttribute("ToolName") == "Item Bag" then
+                return tool
+            end
+        end
+        return nil
+    end
+
+    -- วาร์ปไป TriggerZone แล้วสับกระเป๋า Item Bag สลับกับอาวุธ (สับของในโซน = trigger ให้เวฟเริ่ม)
+    -- วนสับจนกว่าจะเจอ Cultist Stronghold ตัวแรก แล้วถืออาวุธจริง คืนอาวุธให้ลูปต่อสู้ใช้ต่อ
+    local function swapAtZoneUntilFirstCultist()
+        local tz = getTriggerZone()
+        local hrp = getHRP()
+        local weaponTool = getBestCombatWeapon()
+        local bag = getItemBag()
+        if not (tz and hrp) then return weaponTool end
+
+        pcall(function() hrp.CFrame = CFrame.new(tz.Position + Vector3.new(0, 2, 0)) end)
+        task.wait(0.3)
+
+        while autoEnabled and #findCultists() == 0 do
+            -- รั้งตัวอยู่ในโซนเสมอ
+            pcall(function() hrp.CFrame = CFrame.new(tz.Position + Vector3.new(0, 2, 0)) end)
+            if bag and weaponTool then
+                equipWeapon(bag)
+                task.wait(0.2)
+                equipWeapon(weaponTool)
+                task.wait(0.2)
+            else
+                -- ไม่มีกระเป๋าหรืออาวุธ: รอ poll แทน (ยังต้องรอ cultist อยู่)
+                task.wait(0.5)
+            end
+        end
+
+        -- เจอ cultist ตัวแรกแล้ว: เลิกสลับ ถืออาวุธเลย
+        if weaponTool then
+            equipWeapon(weaponTool)
+            task.wait(0.15)
+        end
+        return weaponTool
+    end
+
     -- ลูป Auto Stronghold (เล่นวนซ้ำเรื่อยๆ ตราบใดที่ยังเปิด toggle อยู่)
     local function strongholdLoop()
         local HOVER_HEIGHT = 10
@@ -337,22 +440,17 @@ function Stronghold.register(context)
         while autoEnabled do
             local remaining = getStrongholdTimeRemaining()
             if not remaining or remaining > 0 then
+                -- จับตำแหน่ง FinalGate ตอนประตูปิด (จุดอ้างอิงเช็คจบรอบแบบ MainScript)
+                local gpart = getFinalGatePart()
+                if gpart then gateOrigin = gpart.Position end
                 task.wait(1)
             else
-                -- สตรองโฮลด์เปิดแล้ว: ถืออาวุธ
-                local bestTool = getBestCombatWeapon()
-                if bestTool then
-                    equipWeapon(bestTool)
-                    task.wait(0.3)
-                end
+                -- สตรองโฮลด์เปิดแล้ว: วาร์ปไป TriggerZone สับกระเป๋า/อาวุธ
+                -- จนกว่า Cultist ตัวแรกจะโผล่ แล้วค่อยถืออาวุธจริง
+                local bestTool = swapAtZoneUntilFirstCultist()
 
-                -- วาร์ปไป TriggerZone เพื่อเริ่มเวฟ
-                local tz = getTriggerZone()
-                local hrp = getHRP()
-                if tz and hrp then
-                    hrp.CFrame = CFrame.new(tz.Position + Vector3.new(0, 2, 0))
-                    task.wait(1)
-                end
+                -- เริ่มตรวจ "จบรอบ" ใหม่ (กันตัวนับ/เวลาเก่าค้างข้ามรอบ)
+                beginClearedCheck()
 
                 -- ต่อสู้จนกว่าสตรองโฮลด์จะเคลียร์
                 while autoEnabled and not isStrongholdCleared() do
