@@ -1,4 +1,4 @@
--- Version 2.56
+-- Version 3.14
 local Item = {}
 
 function Item.register(context)
@@ -331,6 +331,12 @@ function Item.register(context)
                     -- ก่อน ไม่เผา attempts: นับ attempts ต่อเมื่อยิงจริงเท่านั้น
                     if Client and Client.PlayerHandler and not Client.PlayerHandler.Alive then
                         task.wait(1)
+                    end
+
+                    -- กล่อง Locked เกมจะโชว์ "ล็อก" แล้วไม่เปิด (ChestOpened เช็ค Locked ก่อน destroy)
+                    -- -> ปลดล็อกก่อนยิง กล่องจะได้ผ่านเกตไปเปิดจริง
+                    if chest:GetAttribute("Locked") then
+                        chest:SetAttribute("Locked", false)
                     end
 
                     local pos = getChestPos(chest)
