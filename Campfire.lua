@@ -1,4 +1,4 @@
--- Version 12.54
+-- Version 1.26
 local Campfire = {}
 
 function Campfire.register(context)
@@ -785,38 +785,29 @@ function Campfire.register(context)
     local plantEnabled = false
     local plantRunning = false
 
-    -- ของที่รับลองปลูกได้: ชื่อ Sapling/Giant Sapling หรือมีแท็ก Plantable/Acorn
+    -- ของที่รับลองปลูกได้: ชื่อ Sapling/Giant Sapling หรือมีแท็ก Plantable
     -- (ตรงกับ findRealSapling ของ Plant Sapling Loop.lua ที่ใช้ได้จริง —
     -- อย่าไปบังคับ Interaction Attribute เพราะของจริงในเกมอาจไม่มี)
-    local function isPlantable(item)
+    local function isSaplingLike(item)
         return item.Name == "Sapling" or item.Name == "Giant Sapling"
-            or item:HasTag("Plantable") or item:HasTag("Acorn")
+            or item:HasTag("Plantable")
     end
 
-    -- หา Sapling ที่ปลูกได้ (ใน Items หรือกระเป๋า, ยังไม่ได้เป็นของคนอื่น)
+    -- หา Sapling ที่ปลูกได้ เฉพาะใน Items (แบบ Plant Sapling Loop.lua — หาของใน
+    -- กระเป๋า/Inventory แล้วยิง remote เซิร์ฟเวอร์ reject วนไม่จบ ต้องเป็นของที่วางในโลกเท่านั้น)
+    -- ยังไม่ได้เป็นของคนอื่น (Owner ว่างหรือเป็นเรา)
     local function findSapling()
-        local candidates = {}
         local items = workspace:FindFirstChild("Items")
-        if items then
-            for _, item in ipairs(items:GetChildren()) do
-                table.insert(candidates, item)
+        if not items then return nil end
+        local fallback = nil
+        for _, item in ipairs(items:GetChildren()) do
+            local owner = item:GetAttribute("Owner")
+            if not owner or owner == player.UserId then
+                if isSaplingLike(item) then return item end
+                if item:HasTag("Acorn") and not fallback then fallback = item end
             end
         end
-        local inv = player:FindFirstChild("Inventory")
-        if inv then
-            for _, item in ipairs(inv:GetChildren()) do
-                table.insert(candidates, item)
-            end
-        end
-        for _, item in ipairs(candidates) do
-            if isPlantable(item) then
-                local owner = item:GetAttribute("Owner")
-                if not owner or owner == player.UserId then
-                    return item
-                end
-            end
-        end
-        return nil
+        return fallback
     end
 
     -- หาพื้นดินใต้จุด (Raycast ลงล่าง เฉพาะชั้น Ground/Snow แบบเดียวกับเกม)
@@ -833,8 +824,11 @@ function Campfire.register(context)
     end
 
     -- เช็คว่าจุดนี้ห่างกองไฟพอ (เกม/เซิร์ฟเวอร์ห้ามปลูกใกล้ไฟ <40) — แบบเดียวกับ Plant Sapling Loop.lua
+    -- วัดจาก MainFire.PrimaryPart เหมือน reference (ไม่ใช้ "Fire" child ซึ่งตำแหน่งอาจต่าง)
     local function fireSafe(pos)
-        local firePos = getFirePart() and getFirePart().Position
+        local mainFire = getMainFire()
+        local firePart = mainFire and (mainFire.PrimaryPart or mainFire:FindFirstChildWhichIsA("BasePart"))
+        local firePos = firePart and firePart.Position
         if not firePos then return true end
         return (firePos - pos).Magnitude >= 40
     end
@@ -846,6 +840,10 @@ function Campfire.register(context)
         local events = Client and Client.Events
         local temp = ReplicatedStorage:FindFirstChild("TempStorage")
         if not events or not temp then return end
+
+        -- ไม่ Alive (ตาย/กำลังรีสปอน) -> เซิร์ฟเวอร์ reject ทุกกรณี ข้ามไปแบบเงียบๆ
+        -- (เช็คเดียวกันกับ Plant Sapling Loop.lua)
+        if Client and Client.PlayerHandler and not Client.PlayerHandler.Alive then return end
 
         local hrp = getHRP()
         if not hrp or not sapling then return end
