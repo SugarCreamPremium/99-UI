@@ -1,4 +1,4 @@
--- Version 10.54
+-- Version 10.59
 local Item = {}
 
 function Item.register(context)
@@ -404,16 +404,16 @@ function Item.register(context)
     getPullTargetPosition = function()
         if pullTarget == "fire" then
             local firePos = getFirePos()
-            if firePos then return firePos + Vector3.new(0, 10, 0) end
+            if firePos then return firePos + Vector3.new(0, 15, 0) end
         elseif pullTarget == "craft" then
             local map = workspace:FindFirstChild("Map")
             local camp = map and map:FindFirstChild("Campground")
             local craft = camp and camp:FindFirstChild("CraftingBench")
             local zone = craft and craft:FindFirstChild("TouchZone")
-            if zone and zone:IsA("BasePart") then return zone.Position end
+            if zone and zone:IsA("BasePart") then return zone.Position + Vector3.new(0, 15, 0) end
         end
         local head = getHead()
-        return head and head.Position + Vector3.new(0, 3, 0)
+        return head and head.Position + Vector3.new(0, 15, 0)
     end
 
     local targetLabels = {}
