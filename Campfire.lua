@@ -1,4 +1,4 @@
--- Version 2.15
+-- Version 2.27
 local Campfire = {}
 
 function Campfire.register(context)
@@ -839,30 +839,18 @@ function Campfire.register(context)
     local function plantSaplingAtFeet(sapling)
         local events = Client and Client.Events
         local temp = ReplicatedStorage:FindFirstChild("TempStorage")
-        if not events or not temp then
-            print("Plant: no Client.Events or TempStorage found")
-            return false
-        end
+        if not events or not temp then return false end
 
         -- ไม่ Alive (ตาย/กำลังรีสปอน) -> เซิร์ฟเวอร์ reject ทุกกรณี ข้ามไปแบบเงียบๆ
         -- (เช็คเดียวกันกับ Plant Sapling Loop.lua)
-        if Client and Client.PlayerHandler and not Client.PlayerHandler.Alive then
-            print("Plant: not alive")
-            return false
-        end
+        if Client and Client.PlayerHandler and not Client.PlayerHandler.Alive then return false end
 
         local hrp = getHRP()
         if not hrp or not sapling then return false end
 
         local grass = findGrassAt(hrp.Position)
-        if not grass then
-            print("Plant: no grass under feet")
-            return false
-        end
-        if not fireSafe(grass) then
-            print("Plant: too close to fire")
-            return false
-        end
+        if not grass then return false end
+        if not fireSafe(grass) then return false end
 
         local parent = sapling.Parent
         sapling.Parent = temp
@@ -874,11 +862,9 @@ function Campfire.register(context)
             local pos = resolveTreePos(sapling) or hrp.Position
             local ok, res = pcall(function() return events.RequestPlantAcorn:InvokeServer(sapling, pos) end)
             if not (ok and res and res.Success) then
-                print("Plant: acorn rejected -> " .. tostring(res and res.Success) .. " / " .. tostring(res and res.Error))
                 sapling.Parent = parent
                 return false
             end
-            print("Plant: acorn planted")
             return true
         end
 
@@ -886,11 +872,9 @@ function Campfire.register(context)
         -- ใช้ :InvokeServer ตรงๆ แบบเดียวกับ reference และเกม (InteractionHandler.lua:1229)
         local ok, res = pcall(function() return events.RequestPlantItem:InvokeServer(sapling, grass) end)
         if not (ok and res and res.Success) then
-            print("Plant: server rejected -> " .. tostring(res and res.Success) .. " / " .. tostring(res and res.Error))
             sapling.Parent = parent
             return false
         end
-        print("Plant: planted " .. sapling.Name)
         return true
     end
 
@@ -917,37 +901,20 @@ function Campfire.register(context)
     end
 
     local function plantLoop()
-        -- พิมพ์ครั้งเดียวตอนเปิด toggle: รายชื่อของใน Items (ใช้วินิจฉัยว่าหา Sapling เจอไหม)
-        local items = workspace:FindFirstChild("Items")
-        if items then
-            local dump = {}
-            for _, item in ipairs(items:GetChildren()) do
-                local tag = item:HasTag("Plantable") and "+Plantable" or (item:HasTag("Acorn") and "+Acorn" or "")
-                table.insert(dump, item.Name .. tag)
-            end
-            print("Plant: Items = " .. table.concat(dump, ", "))
-        end
-        local lastFound = nil
         while plantEnabled do
             local sapling = findSapling()
             if sapling then
-                if not lastFound then print("Plant: found " .. sapling.Name .. " - pulling") end
-                lastFound = true
                 local ok, plantedOrErr = pcall(function()
                     pullItemToFeet(sapling)
                     task.wait(0.05) -- รอ drag วางตัวก่อนยิง remote ปลูก
                     return plantSaplingAtFeet(sapling)
                 end)
-                if not ok then
-                    print("Plant: error -> " .. tostring(plantedOrErr))
-                    task.wait(0.3)
+                if ok and plantedOrErr then
+                    task.wait(0.1) -- เป้า: ต้นละ ~0.1s หลังยิงจบ
                 else
-                    -- เป้า: ต้นละ ~0.1s หลังยิงจบ (สำเร็จรอสั้น โดน reject รอ 0.3 กันรัว)
-                    task.wait(plantedOrErr and 0.1 or 0.3)
+                    task.wait(0.3) -- reject/error รอ 0.3 กันยิงรัวใส่ของเดิม
                 end
             else
-                if lastFound ~= false then print("Plant: no sapling found in Items") end
-                lastFound = false
                 task.wait(0.5)
             end
         end
