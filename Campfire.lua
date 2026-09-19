@@ -1,4 +1,4 @@
--- Version 2.27
+-- Version 5.26
 local Campfire = {}
 
 function Campfire.register(context)
@@ -149,9 +149,27 @@ function Campfire.register(context)
         local hrp = getHRP()
         if not hrp then return end
 
+        local function nearFire(pos)
+            if not pos then return false end
+            -- วัดระยะแนวนอน (ไม่เอา Y: ปล่อยจากความสูง +10 เหนือไฟ ถ้าตกพื้นยังถือว่าอยู่ที่ไฟ)
+            local flat = Vector3.new(pos.X - firePos.X, 0, pos.Z - firePos.Z)
+            return flat.Magnitude <= 15
+        end
+
+        -- ชัวร์ก่อนปล่อยเด็ก: ต้องอยู่ที่กองไฟจริงเท่านั้น (ลองวาร์ปซ้ำหลายรอบ ถ้า
+        -- ถูกขัดขวาง/ตายกลางทาง ไม่อยู่ที่ไฟ = ไม่ปล่อยเด็ก)
         local targetPos = firePos + Vector3.new(0, 10, 0)
-        pcall(function() hrp.CFrame = CFrame.new(targetPos) end)
-        task.wait(0.5)
+        local atFire = false
+        for _ = 1, 5 do
+            pcall(function() hrp.CFrame = CFrame.new(targetPos) end)
+            task.wait(0.5)
+            hrp = getHRP()
+            if hrp and nearFire(hrp.Position) then
+                atFire = true
+                break
+            end
+        end
+        if not atFire then return end
 
         if Client and Client.InventoryHandler then
             pcall(function() Client.InventoryHandler.RequestEquipItem(oldSack) end)
@@ -163,6 +181,9 @@ function Campfire.register(context)
         if not BagDrop then return end
 
         for name in pairs(collectedChildren) do
+            -- เช็คซ้ำทุกตัวก่อนปล่อย: ต้องอยู่ที่กองไฟเท่านั้น หลุดจากไฟ = หยุดปล่อยทันที
+            local hrp2 = getHRP()
+            if not (hrp2 and nearFire(hrp2.Position)) then break end
             local bag = player:FindFirstChild("ItemBag")
             local bagChild = bag and bag:FindFirstChild(name)
             if bagChild then
