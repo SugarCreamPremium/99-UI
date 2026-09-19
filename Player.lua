@@ -1,4 +1,4 @@
--- Version 3.25
+-- Version 12.13
 local Player = {}
 
 -- กันดาเมจพื้นฐาน (Melee + Projectile + กับดัก/สิ่งแวดล้อม): กลบ remote รายงานความเสียหายจาก client -> server
@@ -41,7 +41,8 @@ function Player.register(context)
     local dmgSection = tab:Section({Title = "God Mode", Opened = true})
     if dmgSection then
         dmgSection:Toggle({
-            Title = "กันดาเมจเกือบทุกประเภท (ยกเว้น กบ , ติดสถานะต่างๆ)",
+            Title = "กันดาเมจเกือบทุกประเภท",
+            Desc = "กันได้แทบจะทุกอย่างในเกมยกเว้น กบและการติดสถานะต่างๆ",
             Value = false,
             Callback = Player.setDamageBlock,
         })
