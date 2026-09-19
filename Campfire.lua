@@ -1,4 +1,4 @@
--- Version 12.45
+-- Version 12.54
 local Campfire = {}
 
 function Campfire.register(context)
