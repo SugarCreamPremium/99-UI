@@ -1,4 +1,4 @@
--- Version 12.24
+-- Version 12.33
 local Campfire = {}
 
 function Campfire.register(context)
@@ -785,12 +785,12 @@ function Campfire.register(context)
     local plantEnabled = false
     local plantRunning = false
 
-    -- หา Sapling ที่ปลูกได้ (ใน Items หรือกระเป๋า, ยังไม่ได้เป็นของคนอื่น)
-    -- เช็คว่าเป็นของที่เกมรับปลูกได้: ชื่อ Sapling/Giant Sapling หรือมีแท็ก Plantable/Acorn
-    -- (เดิมเช็ค "ชื่อ Sapling AND แท็ก" อย่างเคร่ง -> พลาดตัวที่ชื่ออื่น/ไม่มีแท็ก)
+    -- ของที่เกมรับปลูกจริง: มี Interaction Item/Tool + แท็ก Plantable/Acorn
+    -- (เหมือน AttemptPlantItem ของเกม — ของที่ชื่อ "Sapling" แต่ไม่มีแท็ก = เซิร์ฟเวอร์ reject)
     local function isPlantable(item)
-        return item.Name == "Sapling" or item.Name == "Giant Sapling"
-            or item:HasTag("Plantable") or item:HasTag("Acorn")
+        local interaction = item:GetAttribute("Interaction")
+        if interaction ~= "Item" and interaction ~= "Tool" then return false end
+        return item:HasTag("Plantable") or item:HasTag("Acorn")
     end
 
     -- หา Sapling ที่ปลูกได้ (ใน Items หรือกระเป๋า, ยังไม่ได้เป็นของคนอื่น)
@@ -832,46 +832,45 @@ function Campfire.register(context)
         return hit and hit.Position or nil
     end
 
-    -- หาจุดที่เกมยอมให้ปลูกได้: มีพื้น (Grass/Snow) + ห่างจากกองไฟ >= 40 studs
-    -- (เซิร์ฟเวอร์ reject การปลูกใกล้ไฟ — ต้องไล่หาจุดที่ไกลพอจากตำแหน่งเราเอง)
-    local function getValidPlantSpot()
+    -- ไล่จุดที่ลองปลูกตามลำดับ: ใต้เท้าเรา (พยายาม "ที่ไหนก็ได้" ก่อน) → ไล่ออกจากกองไฟ
+    -- (เซิร์ฟเวอร์ห้ามปลูกใกล้ไฟ <40 — จุดหลังคือจุดที่ผ่านกฎไฟแน่นอน)
+    local function getPlantSpots()
         local hrp = getHRP()
-        if not hrp then return nil end
-        local firePos = getFirePart() and getFirePart().Position
+        if not hrp then return {} end
+        local spots = {}
 
+        local function push(pos)
+            local grass = findGrassAt(pos)
+            if grass then table.insert(spots, grass) end
+        end
+
+        push(hrp.Position) -- จุดแรก: ที่เท้าเรา (พยายาม "ที่ไหนก็ได้" ก่อน)
+        local firePos = getFirePart() and getFirePart().Position
         if firePos then
             local away = hrp.Position - firePos
             local len = away.Magnitude
             if len > 1 then away = away / len else away = Vector3.new(0, 0, 1) end
 
-            -- 1) ไล่ตรงออกไปจากกองไฟ ทีละ 15 studs (ลองถึง 60) — ปกติเจอจุดที่เท้าเลยถ้าอยู่ไกลไฟ
-            for step = 0, 4 do
-                local grass = findGrassAt(hrp.Position + away * (step * 15))
-                if grass and (firePos - grass).Magnitude >= 40 then
-                    return grass
-                end
+            -- ไล่ตรงออกจากกองไฟ ทีละ 15 studs (ถึง 60)
+            for step = 1, 4 do
+                push(hrp.Position + away * (step * 15))
             end
-            -- 2) เก็บตก: สุ่มรอบตัวในระยะ 40-90 studs (กันอยู่ติดไฟแล้วรอบข้างเป็นน้ำ/หน้าผา)
+            -- เก็บตก: สุ่มรอบตัวในระยะ 40-90 studs (กันอยู่ติดไฟแล้วรอบข้างเป็นน้ำ/หน้าผา)
             for _ = 1, 8 do
                 local angle = math.random() * math.pi * 2
                 local dist = math.random(40, 90)
-                local grass = findGrassAt(hrp.Position + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
-                if grass and (firePos - grass).Magnitude >= 40 then
-                    return grass
-                end
+                push(hrp.Position + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
             end
-            return nil
         end
-
-        return findGrassAt(hrp.Position)
+        return spots
     end
 
-    -- ปลูก 1 ต้นที่เท้าเรา (เลียนแบบ AttemptPlantItem ของเกม)
+    -- ปลูก 1 ต้น: ลองจุดทีละจุดจนกว่าจะมีจุดที่เซิร์ฟเวอร์ยอมรับ
     local function plantSaplingAtFeet(sapling)
         local hrp = getHRP()
         if not hrp or not sapling then return end
 
-        -- ย้าย Sapling มาที่เท้าก่อน (ใช้ตำแหน่งตัวเองหา Grass แบบเดียวกับเกม)
+        -- ย้าย Sapling มาที่เท้าก่อน (ตำแหน่งตัวเองหา Grass แบบเดียวกับเกม)
         pcall(function()
             if sapling:IsA("Model") then
                 sapling:PivotTo(CFrame.new(hrp.Position + Vector3.new(0, 0.5, 0)))
@@ -894,16 +893,20 @@ function Campfire.register(context)
             sapling.Parent = temp
             local ok, res = pcall(function() return remote:InvokeServer(sapling, pos) end)
             if not (ok and res and res.Success) then sapling.Parent = parent end
-        else
-            local remote = events.RequestPlantItem
-            if typeof(remote) ~= "Instance" then return end
-            -- จุดที่เกมยอมรับ: มีพื้น + ห่างกองไฟ >= 40 (เก็มห้ามปลูกใกล้ไฟ)
-            -- พยายามหาจุดใหม่ทุกครั้งที่วน (Sapling อาจหายไปเพราะคนอื่นเก็บ/ตัวเกม)
-            local grass = getValidPlantSpot()
-            if not grass then return end
+            return
+        end
+
+        local remote = events.RequestPlantItem
+        if typeof(remote) ~= "Instance" then return end
+
+        for _, grass in ipairs(getPlantSpots()) do
             sapling.Parent = temp
             local ok, res = pcall(function() return remote:InvokeServer(sapling, grass) end)
-            if not (ok and res and res.Success) then sapling.Parent = parent end
+            if ok and res and res.Success then
+                return
+            end
+            sapling.Parent = parent -- จุดนี้โดน reject -> ลองจุดถัดไป
+            task.wait(0.05)
         end
     end
 
@@ -948,7 +951,7 @@ function Campfire.register(context)
     if plantSection then
         plantSection:Toggle({
             Title = "ปลูก Sapling อัตโนมัติ",
-            Desc = "หา Sapling ใน Items/กระเป๋า แล้วปลูกที่จุดมีพื้น ห่างจากกองไฟ (เกมบังคับ >= 40 studs)",
+            Desc = "หา Sapling (แท็ก Plantable/Acorn) ใน Items/กระเป๋า ลองปลูกใต้เท้าก่อน ถ้าโดนปฏิเสธจะถอยห่างกองไฟให้",
             Value = false,
             Callback = setPlantEnabled,
         })
