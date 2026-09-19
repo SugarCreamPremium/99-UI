@@ -1,4 +1,4 @@
--- Version 10.59
+-- Version 11.46
 local Item = {}
 
 function Item.register(context)
@@ -240,14 +240,20 @@ function Item.register(context)
 
     local function firePrompt(prompt)
         if not prompt or not prompt.Enabled then return false end
+        local ok
         if typeof(fireproximityprompt) == "function" then
-            return pcall(fireproximityprompt, prompt, 0, true)
+            ok = pcall(fireproximityprompt, prompt, 0, true)
+        else
+            pcall(function() prompt.HoldDuration = 0 end)
+            pcall(function() prompt:InputHoldBegin() end)
+            task.wait(0.05)
+            pcall(function() prompt:InputHoldEnd() end)
+            ok = true
         end
-        pcall(function() prompt.HoldDuration = 0 end)
-        prompt:InputHoldBegin()
-        task.wait(0.05)
-        prompt:InputHoldEnd()
-        return true
+        -- เก็บตก: prompt โดน destroy กลาง hold (เกมลบ ProximityAttachment หลังเปิดกล่องสำเร็จ)
+        -- ต้องปิด hold หลังยิงเสมอ ไม่งั้น PromptGui ("กด E เปิดกล่อง") ค้างกลางจอ วาร์ปไปไหนก็ไม่หาย
+        pcall(function() prompt:InputHoldEnd() end)
+        return ok
     end
 
     local function getChestPos(chest)
