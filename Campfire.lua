@@ -1,4 +1,4 @@
--- Version 1.26
+-- Version 1.40
 local Campfire = {}
 
 function Campfire.register(context)
@@ -839,17 +839,30 @@ function Campfire.register(context)
     local function plantSaplingAtFeet(sapling)
         local events = Client and Client.Events
         local temp = ReplicatedStorage:FindFirstChild("TempStorage")
-        if not events or not temp then return end
+        if not events or not temp then
+            print("Plant: no Client.Events or TempStorage found")
+            return
+        end
 
         -- ไม่ Alive (ตาย/กำลังรีสปอน) -> เซิร์ฟเวอร์ reject ทุกกรณี ข้ามไปแบบเงียบๆ
         -- (เช็คเดียวกันกับ Plant Sapling Loop.lua)
-        if Client and Client.PlayerHandler and not Client.PlayerHandler.Alive then return end
+        if Client and Client.PlayerHandler and not Client.PlayerHandler.Alive then
+            print("Plant: not alive")
+            return
+        end
 
         local hrp = getHRP()
         if not hrp or not sapling then return end
 
         local grass = findGrassAt(hrp.Position)
-        if not grass or not fireSafe(grass) then return end
+        if not grass then
+            print("Plant: no grass under feet")
+            return
+        end
+        if not fireSafe(grass) then
+            print("Plant: too close to fire")
+            return
+        end
 
         local parent = sapling.Parent
         sapling.Parent = temp
@@ -858,29 +871,59 @@ function Campfire.register(context)
             -- Acorn: เกมต้องการระยะ 4-60 จาก tree root (ส่งตำแหน่งของตัวมันเอง)
             local remote = events.RequestPlantAcorn
             if typeof(remote) ~= "Instance" then
+                print("Plant: RequestPlantAcorn missing")
                 sapling.Parent = parent
                 return
             end
             local pos = resolveTreePos(sapling) or hrp.Position
             local ok, res = pcall(function() return remote:InvokeServer(sapling, pos) end)
-            if not (ok and res and res.Success) then sapling.Parent = parent end
+            if not (ok and res and res.Success) then
+                print("Plant: acorn rejected -> " .. tostring(res and res.Success))
+                sapling.Parent = parent
+            else
+                print("Plant: acorn planted")
+            end
             return
         end
 
         local remote = events.RequestPlantItem
         if typeof(remote) ~= "Instance" then
+            print("Plant: RequestPlantItem remote missing")
             sapling.Parent = parent
             return
         end
         local ok, res = pcall(function() return remote:InvokeServer(sapling, grass) end)
-        if not (ok and res and res.Success) then sapling.Parent = parent end
+        if not (ok and res and res.Success) then
+            print("Plant: server rejected -> " .. tostring(res and res.Success) .. " / " .. tostring(res and res.Error))
+            sapling.Parent = parent
+        else
+            print("Plant: planted " .. sapling.Name)
+        end
     end
 
     local function plantLoop()
+        -- พิมพ์ครั้งเดียวตอนเปิด toggle: รายชื่อของใน Items (ใช้วินิจฉัยว่าหา Sapling เจอไหม)
+        local items = workspace:FindFirstChild("Items")
+        if items and items.NumChildren > 0 then
+            local dump = {}
+            for _, item in ipairs(items:GetChildren()) do
+                local tag = item:HasTag("Plantable") and "+Plantable" or (item:HasTag("Acorn") and "+Acorn" or "")
+                table.insert(dump, item.Name .. tag)
+            end
+            print("Plant: Items = " .. table.concat(dump, ", "))
+        end
+        local lastFound = nil
         while plantEnabled do
             local sapling = findSapling()
+            if sapling and not lastFound then
+                print("Plant: found " .. sapling.Name .. " - sending")
+            elseif not sapling and lastFound ~= false then
+                print("Plant: no sapling found in Items")
+            end
+            lastFound = sapling and true or false
             if sapling then
-                pcall(plantSaplingAtFeet, sapling)
+                local ok, err = pcall(plantSaplingAtFeet, sapling)
+                if not ok then print("Plant: error -> " .. tostring(err)) end
                 task.wait(0.8)
             else
                 task.wait(1)
