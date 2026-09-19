@@ -1,4 +1,4 @@
--- Version 1.51
+-- Version 1.59
 local Campfire = {}
 
 function Campfire.register(context)
@@ -869,16 +869,12 @@ function Campfire.register(context)
 
         if sapling:HasTag("Acorn") then
             -- Acorn: เกมต้องการระยะ 4-60 จาก tree root (ส่งตำแหน่งของตัวมันเอง)
-            local remote = events.RequestPlantAcorn
-            if typeof(remote) ~= "Instance" then
-                print("Plant: RequestPlantAcorn missing")
-                sapling.Parent = parent
-                return
-            end
+            -- Client.Events.RequestPlantAcorn เป็น wrapper (UtilityModules/Events) ไม่ใช่ Instance
+            -- ใช้ :InvokeServer ตรงๆ แบบเดียวกับเกม (TreeRootClient.lua:120)
             local pos = resolveTreePos(sapling) or hrp.Position
-            local ok, res = pcall(function() return remote:InvokeServer(sapling, pos) end)
+            local ok, res = pcall(function() return events.RequestPlantAcorn:InvokeServer(sapling, pos) end)
             if not (ok and res and res.Success) then
-                print("Plant: acorn rejected -> " .. tostring(res and res.Success))
+                print("Plant: acorn rejected -> " .. tostring(res and res.Success) .. " / " .. tostring(res and res.Error))
                 sapling.Parent = parent
             else
                 print("Plant: acorn planted")
@@ -886,13 +882,9 @@ function Campfire.register(context)
             return
         end
 
-        local remote = events.RequestPlantItem
-        if typeof(remote) ~= "Instance" then
-            print("Plant: RequestPlantItem remote missing")
-            sapling.Parent = parent
-            return
-        end
-        local ok, res = pcall(function() return remote:InvokeServer(sapling, grass) end)
+        -- Client.Events.RequestPlantItem เป็น wrapper (UtilityModules/Events) ไม่ใช่ Instance
+        -- ใช้ :InvokeServer ตรงๆ แบบเดียวกับ reference และเกม (InteractionHandler.lua:1229)
+        local ok, res = pcall(function() return events.RequestPlantItem:InvokeServer(sapling, grass) end)
         if not (ok and res and res.Success) then
             print("Plant: server rejected -> " .. tostring(res and res.Success) .. " / " .. tostring(res and res.Error))
             sapling.Parent = parent
