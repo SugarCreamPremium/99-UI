@@ -1,4 +1,4 @@
--- Version 4.55
+-- Version 5.09
 local Item = {}
 
 function Item.register(context)
@@ -224,10 +224,12 @@ function Item.register(context)
         if not items then return {} end
         local result = {}
         for _, obj in ipairs(items:GetChildren()) do
-            if obj:IsA("Model") and obj.Name:match("Chest") then
-                table.insert(result, obj)
-            end
+        -- ข้าม Snow Chest ไป ไม่ต้องเปิด (กรองจากชื่อ: Snow Chest, SnowChest ฯลฯ)
+        if obj:IsA("Model") and obj.Name:match("Chest")
+            and not string.find(string.lower(obj.Name), "snow", 1, true) then
+            table.insert(result, obj)
         end
+    end
         return result
     end
 
