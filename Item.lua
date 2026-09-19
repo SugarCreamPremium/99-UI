@@ -1,4 +1,4 @@
--- Version 2.21
+-- Version 2.41
 local Item = {}
 
 function Item.register(context)
@@ -106,6 +106,8 @@ function Item.register(context)
         end
     end
 
+    local pullSeq = 0 -- ลำดับการดึง ใช้หน่วงปล่อย anchor (ของทุกชิ้นดรอปจุดเดิมแต่คนละเวลา)
+
     local function pullSingleItem(item, targetPosition)
         if warpedItems[item] or not isValidItem(item) then return false end
         local events = ReplicatedStorage:FindFirstChild("RemoteEvents")
@@ -125,6 +127,7 @@ function Item.register(context)
         end
         task.wait(0.02)
 
+        pullSeq = pullSeq + 1
         local dragOk = pcall(function() startDrag:FireServer(item) end)
         task.wait(0.02)
         if item:IsA("Model") then
@@ -136,11 +139,12 @@ function Item.register(context)
         pcall(function() stopDrag:FireServer(item) end)
         task.wait(0.02)
 
-        -- 3) ปลด Anchor ทุกชิ้นเสมอ ไม่ว่า drag จะ error หรือ part โดน destroy กลางคัน
-        releaseAnchors(parts)
+        -- 3) ปล่อย anchor ทีละชิ้น หน่วงตามลำดับ (ทุกชิ้นดรอปจุดเดียวกันพอดี
+        -- แต่คนละเวลา -> มีของลอย/ตกแค่ 1-2 ชิ้นต่อครั้ง ไม่ชนกันเป็นฝูง)
+        task.delay(0.4 + pullSeq * 0.1, function() releaseAnchors(parts) end)
 
         -- 4) เช็คซ้ำอีกรอบหลัง server กลับสถานะ (กัน anchor ค้างจากฝั่งเกม)
-        task.delay(0.4, function() releaseAnchors(parts) end)
+        task.delay(3.0, function() releaseAnchors(parts) end)
 
         if dragOk and item.Parent then warpedItems[item] = true end
         return dragOk
@@ -179,7 +183,7 @@ function Item.register(context)
                         for _, item in ipairs(items:GetChildren()) do
                             if item.Name == name and pullSingleItem(item, target) then
                                 count = count + 1
-                                task.wait(0.02)
+                                task.wait(0.05) -- เว้นจังหวะระหว่างชิ้น (กันฟิสิกส์/remote รัว)
                                 if count >= maxAmount then break end
                             end
                         end
@@ -202,7 +206,7 @@ function Item.register(context)
             local ok, err = pcall(function()
                 for _, item in ipairs(items:GetChildren()) do
                     pullSingleItem(item, target)
-                    task.wait(0.02)
+                    task.wait(0.06) -- เว้นจังหวะระหว่างชิ้น (กันฟิสิกส์/remote รัว)
                 end
             end)
             if not ok then warn("Pull error: " .. tostring(err)) end
