@@ -1,4 +1,4 @@
--- Version 4.57
+-- Version 12.11
 local Combat = {}
 
 function Combat.register(context)
@@ -67,7 +67,8 @@ function Combat.register(context)
     end
 
     section:Toggle({
-        Title = "Kill Aura 1 Hit (ต้องถืออาวุธระยะใกล้ด้วย)",
+        Title = "Kill Aura 1 Hit",
+        Desc = "ต้องถืออาวุธระยะใกล้ด้วย แล้วจะทำการตีมอนสเตอร์รอบตัว",
         Value = false,
         Callback = setEnabled,
     })
