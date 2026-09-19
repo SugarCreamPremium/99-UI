@@ -1,4 +1,4 @@
--- Version 11.46
+-- Version 12.55
 local Item = {}
 
 function Item.register(context)
@@ -51,10 +51,10 @@ function Item.register(context)
         end
         local map = workspace:FindFirstChild("Map")
         if map and item:IsDescendantOf(map) then return false end
-        local interaction = item:GetAttribute("Interaction")
-        if interaction ~= "Item" and interaction ~= "Tool" then return false end
-        local owner = item:GetAttribute("Owner")
-        return not owner or owner == player.UserId
+        -- เกมไม่ได้ตั้ง Interaction "Item"/"Tool" ให้ทุกไอเทมจริง (ขวาน/ดรอปของหลายอันไม่มีแอตทริบิวต์นี้)
+        -- ไม่กรองตรงนี้แล้ว ปล่อยให้ server ตัดสินตอนดึง ถ้า server ปฏิเสธของก็แค่ไม่ขยับ
+        -- Owner ก็ไม่กรอง (ขวาน/ของที่คนอื่นดรอปไว้มักมี Owner เป็นคนอื่น) แต่ดึงมาได้ในเกม
+        return true
     end
 
     local function collectParts(item)
