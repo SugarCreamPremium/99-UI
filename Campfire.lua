@@ -1,4 +1,4 @@
--- Version 12.06
+-- Version 12.19
 local Campfire = {}
 
 function Campfire.register(context)
@@ -706,9 +706,10 @@ function Campfire.register(context)
     -- 4) ToolTier: ต้นต้องการ tier เท่าไหร่ ขวานต้องพอดีหรือมากกว่า (หรือ AxeLevel >= 3)
     local function canCutTree(tree, tool)
         if typeof(tree) ~= "Instance" or not tree.Parent then return false end
+        -- เช็คชื่อก่อน (ถูกที่สุด) กรองพวก Part/ของอื่นออกก่อนอ่าน Attribute
+        if not table.find(CHOPPABLE_TREE_NAMES, tree.Name) then return false end
         if tree:GetAttribute("Destroyed") then return false end
         if tree:GetAttribute("NotAttackable") then return false end
-        if not table.find(CHOPPABLE_TREE_NAMES, tree.Name) then return false end
         if not tree:GetAttribute("Resource") then return false end
         local toolName = tool and tool:GetAttribute("ToolName")
         if not toolName or not tree:GetAttribute("AllowTool_" .. toolName) then return false end
@@ -727,7 +728,8 @@ function Campfire.register(context)
     local function findCuttableTreesInRange(center, range, tool)
         local found = {}
         for _, item in ipairs(workspace:GetDescendants()) do
-            if canCutTree(item, tool) then
+            -- กรองเฉพาะ Model ก่อน (Part เล็กๆ นับพันไม่ต้องอ่าน Attribute)
+            if item:IsA("Model") and canCutTree(item, tool) then
                 local pos = resolveTreePos(item)
                 if pos and (pos - center).Magnitude <= range then
                     table.insert(found, item)
@@ -737,24 +739,40 @@ function Campfire.register(context)
         return found
     end
 
+    -- ของที่ผู้เล่นถืออยู่ตอนนี้ (ไม่บังคับถือขวานให้เอง)
+    local function getEquippedTool()
+        local char = player.Character
+        local th = char and char:FindFirstChild("ToolHandle")
+        local item = th and th:FindFirstChild("OriginalItem")
+        return item and item.Value
+    end
+
     chopAuraLoop = function()
         local damageEvent = ReplicatedStorage:FindFirstChild("RemoteEvents")
             and ReplicatedStorage.RemoteEvents:FindFirstChild("ToolDamageObject")
         local ownerId = tostring(player.UserId) .. "_" .. player.UserId
+        local lastScan = 0
+        local cachedTrees = {}
         while chopAuraEnabled do
             local hrp = getHRP()
-            local bestAxe = getBestAxe()
-            local axe = hrp and checkAndReequipAxe(bestAxe)
-            if hrp and axe and damageEvent then
-                -- ตัดพร้อมกันทุกต้นในระยะ (ยิงล็อตเดียวทุก ~0.2 วิ)
-                for _, tree in ipairs(findCuttableTreesInRange(hrp.Position, chopAuraRange, axe)) do
-                    local target = tree
+            -- ใช้ของที่ผู้เล่นถือเองเท่านั้น (ผู้ใช้กดถือขวาน / เลื่อย เอง)
+            local axe = getEquippedTool()
+            if hrp and axe and axe:GetAttribute("WeaponResourceDamage") and damageEvent then
+                -- สแกนหาต้นไม้ใหม่แค่ 1 ครั้ง/วิ: ที่แลคเพราะสแกน workspace ทั้งหมดทุก 0.2 วิ
+                local now = os.clock()
+                if now - lastScan >= 1 then
+                    cachedTrees = findCuttableTreesInRange(hrp.Position, chopAuraRange, axe)
+                    lastScan = now
+                end
+                -- ตัดพร้อมกันทุกต้นที่สแกนเจอ (ยิงล็อตเดียวทุก ~0.2 วิ)
+                for _, tree in ipairs(cachedTrees) do
                     pcall(function()
-                        damageEvent:InvokeServer(target, axe, ownerId, hrp.CFrame, false)
+                        damageEvent:InvokeServer(tree, axe, ownerId, hrp.CFrame, false)
                     end)
                 end
                 task.wait(0.2)
             else
+                -- ไม่ได้ถือขวาน -> รอเฉยๆ (ไม่มีระบบถือให้แล้ว)
                 task.wait(0.5)
             end
         end
@@ -872,13 +890,13 @@ function Campfire.register(context)
     if chopSection then
         chopSection:Toggle({
             Title = "ตัดต้นไม้ Kill Aura",
-            Desc = "ตัดทุกต้นที่ตัดได้ในระยะพร้อมกัน (ต้องถือขวาน) เริ่มจาก self-check ToolTier อัตโนมัติ",
+            Desc = "ถือขวาน/เลื่อยด้วยตัวเอง แล้วจะตัดทุกต้นที่ตัดได้ในระยะพร้อมกัน",
             Value = false,
             Callback = setChopAura,
         })
         chopSection:Slider({
             Title = "ระยะตัด",
-            Value = {Min = 5, Max = 100, Default = chopAuraRange},
+            Value = {Min = 5, Max = 80, Default = chopAuraRange},
             Step = 1,
             Callback = function(value) chopAuraRange = math.clamp(value, 5, 100) end,
         })
