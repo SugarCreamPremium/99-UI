@@ -1,4 +1,4 @@
--- Version 5.26
+-- Version 6.25
 local Campfire = {}
 
 function Campfire.register(context)
@@ -156,18 +156,16 @@ function Campfire.register(context)
             return flat.Magnitude <= 15
         end
 
-        -- ชัวร์ก่อนปล่อยเด็ก: ต้องอยู่ที่กองไฟจริงเท่านั้น (ลองวาร์ปซ้ำหลายรอบ ถ้า
-        -- ถูกขัดขวาง/ตายกลางทาง ไม่อยู่ที่ไฟ = ไม่ปล่อยเด็ก)
+        -- ลำดับตายตัว: วาร์ปมาที่กองไฟก่อน -> รอ 0.5 วิ -> ตรวจว่าอยู่ที่กองไฟจริงแล้ว -> ค่อยปล่อย
+        -- ไม่อยู่ที่กองไฟ = ห้ามปล่อยเด็ดขาด (คืนทันที ไม่แตะ BagDrop เลย)
         local targetPos = firePos + Vector3.new(0, 10, 0)
+        pcall(function() hrp.CFrame = CFrame.new(targetPos) end)
+        task.wait(0.5)
+
         local atFire = false
-        for _ = 1, 5 do
-            pcall(function() hrp.CFrame = CFrame.new(targetPos) end)
-            task.wait(0.5)
-            hrp = getHRP()
-            if hrp and nearFire(hrp.Position) then
-                atFire = true
-                break
-            end
+        hrp = getHRP()
+        if hrp and nearFire(hrp.Position) then
+            atFire = true
         end
         if not atFire then return end
 
