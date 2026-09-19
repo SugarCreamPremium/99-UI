@@ -1,4 +1,4 @@
--- Version 1.59
+-- Version 2.15
 local Campfire = {}
 
 function Campfire.register(context)
@@ -841,27 +841,27 @@ function Campfire.register(context)
         local temp = ReplicatedStorage:FindFirstChild("TempStorage")
         if not events or not temp then
             print("Plant: no Client.Events or TempStorage found")
-            return
+            return false
         end
 
         -- ไม่ Alive (ตาย/กำลังรีสปอน) -> เซิร์ฟเวอร์ reject ทุกกรณี ข้ามไปแบบเงียบๆ
         -- (เช็คเดียวกันกับ Plant Sapling Loop.lua)
         if Client and Client.PlayerHandler and not Client.PlayerHandler.Alive then
             print("Plant: not alive")
-            return
+            return false
         end
 
         local hrp = getHRP()
-        if not hrp or not sapling then return end
+        if not hrp or not sapling then return false end
 
         local grass = findGrassAt(hrp.Position)
         if not grass then
             print("Plant: no grass under feet")
-            return
+            return false
         end
         if not fireSafe(grass) then
             print("Plant: too close to fire")
-            return
+            return false
         end
 
         local parent = sapling.Parent
@@ -876,10 +876,10 @@ function Campfire.register(context)
             if not (ok and res and res.Success) then
                 print("Plant: acorn rejected -> " .. tostring(res and res.Success) .. " / " .. tostring(res and res.Error))
                 sapling.Parent = parent
-            else
-                print("Plant: acorn planted")
+                return false
             end
-            return
+            print("Plant: acorn planted")
+            return true
         end
 
         -- Client.Events.RequestPlantItem เป็น wrapper (UtilityModules/Events) ไม่ใช่ Instance
@@ -888,9 +888,32 @@ function Campfire.register(context)
         if not (ok and res and res.Success) then
             print("Plant: server rejected -> " .. tostring(res and res.Success) .. " / " .. tostring(res and res.Error))
             sapling.Parent = parent
-        else
-            print("Plant: planted " .. sapling.Name)
+            return false
         end
+        print("Plant: planted " .. sapling.Name)
+        return true
+    end
+
+    -- ดึง Sapling มาไว้ที่ตัวเราก่อนแล้วค่อยปลูก (แบบเดียวกับ Auto Plant Sapling Loop.lua)
+    -- ต้องผ่าน drag remote ของเกม (RequestStartDraggingItem -> PivotTo -> StopDraggingItem)
+    -- การย้ายตัวเองโดยไม่ผ่าน drag ทำให้เซิร์ฟเวอร์ไม่รับรู้/reset ตำแหน่ง
+    local function pullItemToFeet(sapling)
+        local hrp = getHRP()
+        if not hrp or not sapling then return false end
+        local remoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents")
+        local startDrag = remoteEvents and remoteEvents:FindFirstChild("RequestStartDraggingItem")
+        local stopDrag = remoteEvents and remoteEvents:FindFirstChild("StopDraggingItem")
+        if not (startDrag and stopDrag) then return false end
+        local ok = pcall(function() startDrag:FireServer(sapling) end)
+        task.wait(0.02)
+        if sapling:IsA("Model") then
+            pcall(function() sapling:PivotTo(CFrame.new(hrp.Position)) end)
+        elseif sapling:IsA("BasePart") then
+            pcall(function() sapling.CFrame = CFrame.new(hrp.Position) end)
+        end
+        task.wait(0.02)
+        pcall(function() stopDrag:FireServer(sapling) end)
+        return ok
     end
 
     local function plantLoop()
@@ -907,18 +930,25 @@ function Campfire.register(context)
         local lastFound = nil
         while plantEnabled do
             local sapling = findSapling()
-            if sapling and not lastFound then
-                print("Plant: found " .. sapling.Name .. " - sending")
-            elseif not sapling and lastFound ~= false then
-                print("Plant: no sapling found in Items")
-            end
-            lastFound = sapling and true or false
             if sapling then
-                local ok, err = pcall(plantSaplingAtFeet, sapling)
-                if not ok then print("Plant: error -> " .. tostring(err)) end
-                task.wait(0.8)
+                if not lastFound then print("Plant: found " .. sapling.Name .. " - pulling") end
+                lastFound = true
+                local ok, plantedOrErr = pcall(function()
+                    pullItemToFeet(sapling)
+                    task.wait(0.05) -- รอ drag วางตัวก่อนยิง remote ปลูก
+                    return plantSaplingAtFeet(sapling)
+                end)
+                if not ok then
+                    print("Plant: error -> " .. tostring(plantedOrErr))
+                    task.wait(0.3)
+                else
+                    -- เป้า: ต้นละ ~0.1s หลังยิงจบ (สำเร็จรอสั้น โดน reject รอ 0.3 กันรัว)
+                    task.wait(plantedOrErr and 0.1 or 0.3)
+                end
             else
-                task.wait(1)
+                if lastFound ~= false then print("Plant: no sapling found in Items") end
+                lastFound = false
+                task.wait(0.5)
             end
         end
         plantRunning = false
