@@ -1,4 +1,4 @@
--- Version 1.40
+-- Version 1.51
 local Campfire = {}
 
 function Campfire.register(context)
@@ -904,7 +904,7 @@ function Campfire.register(context)
     local function plantLoop()
         -- พิมพ์ครั้งเดียวตอนเปิด toggle: รายชื่อของใน Items (ใช้วินิจฉัยว่าหา Sapling เจอไหม)
         local items = workspace:FindFirstChild("Items")
-        if items and items.NumChildren > 0 then
+        if items then
             local dump = {}
             for _, item in ipairs(items:GetChildren()) do
                 local tag = item:HasTag("Plantable") and "+Plantable" or (item:HasTag("Acorn") and "+Acorn" or "")
