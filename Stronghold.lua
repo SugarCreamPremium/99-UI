@@ -1,4 +1,4 @@
--- Version 3.43
+-- Version 11.27
 local Stronghold = {}
 
 function Stronghold.register(context)
@@ -534,8 +534,14 @@ function Stronghold.register(context)
                     collectDiamonds()
                 end
 
-                -- เมื่อจบรอบ จะวนกลับไปเช็คเวลารอบถัดไปต่อเรื่อยๆ
-                task.wait(2)
+                -- เก็บเพชรเสร็จ: เกมยังไม่อัปเดตเวลาเปิดรอบใหม่ทันที -> นับถอยหลังเอง 20 นาที
+                -- (กัน poll เข้าช่วงที่ค่าเกมยังค้างอยู่) พอครบแล้วค่อยวนกลับไปเช็คเวลาจากวิธีเดิม
+                local ROUND_WAIT_SECONDS = 20 * 60
+                local waited = 0
+                while autoEnabled and waited < ROUND_WAIT_SECONDS do
+                    task.wait(1)
+                    waited = waited + 1
+                end
             end
         end
         disableFloating()
