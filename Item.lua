@@ -1,9 +1,10 @@
--- Version 2.41
+-- Version 2.56
 local Item = {}
 
 function Item.register(context)
     local tab = context.Tab
     local player = context.Player
+    local Client = context.Client
     local ReplicatedStorage = context.ReplicatedStorage
     if not tab then return end
 
@@ -106,8 +107,6 @@ function Item.register(context)
         end
     end
 
-    local pullSeq = 0 -- ลำดับการดึง ใช้หน่วงปล่อย anchor (ของทุกชิ้นดรอปจุดเดิมแต่คนละเวลา)
-
     local function pullSingleItem(item, targetPosition)
         if warpedItems[item] or not isValidItem(item) then return false end
         local events = ReplicatedStorage:FindFirstChild("RemoteEvents")
@@ -127,7 +126,6 @@ function Item.register(context)
         end
         task.wait(0.02)
 
-        pullSeq = pullSeq + 1
         local dragOk = pcall(function() startDrag:FireServer(item) end)
         task.wait(0.02)
         if item:IsA("Model") then
@@ -139,12 +137,11 @@ function Item.register(context)
         pcall(function() stopDrag:FireServer(item) end)
         task.wait(0.02)
 
-        -- 3) ปล่อย anchor ทีละชิ้น หน่วงตามลำดับ (ทุกชิ้นดรอปจุดเดียวกันพอดี
-        -- แต่คนละเวลา -> มีของลอย/ตกแค่ 1-2 ชิ้นต่อครั้ง ไม่ชนกันเป็นฝูง)
-        task.delay(0.4 + pullSeq * 0.1, function() releaseAnchors(parts) end)
+        -- 3) ปลด Anchor ทุกชิ้นเสมอ ไม่ว่า drag จะ error หรือ part โดน destroy กลางคัน
+        releaseAnchors(parts)
 
         -- 4) เช็คซ้ำอีกรอบหลัง server กลับสถานะ (กัน anchor ค้างจากฝั่งเกม)
-        task.delay(3.0, function() releaseAnchors(parts) end)
+        task.delay(0.4, function() releaseAnchors(parts) end)
 
         if dragOk and item.Parent then warpedItems[item] = true end
         return dragOk
@@ -183,7 +180,7 @@ function Item.register(context)
                         for _, item in ipairs(items:GetChildren()) do
                             if item.Name == name and pullSingleItem(item, target) then
                                 count = count + 1
-                                task.wait(0.05) -- เว้นจังหวะระหว่างชิ้น (กันฟิสิกส์/remote รัว)
+                                task.wait(0.02)
                                 if count >= maxAmount then break end
                             end
                         end
@@ -206,7 +203,7 @@ function Item.register(context)
             local ok, err = pcall(function()
                 for _, item in ipairs(items:GetChildren()) do
                     pullSingleItem(item, target)
-                    task.wait(0.06) -- เว้นจังหวะระหว่างชิ้น (กันฟิสิกส์/remote รัว)
+                    task.wait(0.02)
                 end
             end)
             if not ok then warn("Pull error: " .. tostring(err)) end
@@ -245,11 +242,14 @@ function Item.register(context)
     end
 
     local function firePrompt(prompt)
-        if not prompt or not prompt.Enabled then return false end
+        if not prompt then return false end
         local ok
         -- ยิง Triggered ตรงๆ (เส้นทางเดียวกับกดจริง — เกมต่อ ProcessInteraction ไว้ที่
         -- ProximityInteraction.Triggered) ไม่สร้าง hold state เลย -> PromptGui "กด E"
         -- ไม่ค้างบนจอแม้ prompt จะโดน destroy กลางคัน (PromptHidden ไม่ยิง = label ค้าง)
+        -- ไม่บังคับ prompt.Enabled: เกมปิด prompt ชั่วคราว (LOS/cooldown) แต่ยิง Triggered
+        -- ตรงๆ เกมยังประมวลผลได้ (ProcessInteraction เช็คแค่ Alive/Undead) — กล่องที่ยิง
+        -- พลาดเพราะช่วงปิดชั่วคราว จะได้เปิดในรอบนี้เลย ไม่ต้องรอกดรอบสอง
         ok = pcall(function() prompt.Triggered:Fire(player) end)
         if not ok then
             -- เก็บตกเครื่องเล่นที่ Fire สัญญาณไม่ได้ -> จำลองกดค้างแทน
@@ -291,7 +291,7 @@ function Item.register(context)
         local hasOpenable = false
         for _, chest in ipairs(getChests()) do
             local prompt = getChestPrompt(chest)
-            if prompt and prompt.Parent and prompt.Enabled then
+            if prompt and prompt.Parent then
                 hasOpenable = true
                 break
             end
@@ -314,8 +314,9 @@ function Item.register(context)
                 local pending = {}
                 for _, chest in ipairs(getChests()) do
                     local prompt = getChestPrompt(chest)
-                    if prompt and prompt.Parent and prompt.Enabled
-                        and (attempts[chest] or 0) < 6 then
+                    -- ไม่บังคับ prompt.Enabled: เกมปิด prompt ชั่วคราว (LOS/cooldown)
+                    -- แต่ยิง Triggered ตรงๆ ยังเปิดได้ (ProcessInteraction เช็คแค่ Alive)
+                    if prompt and prompt.Parent and (attempts[chest] or 0) < 6 then
                         table.insert(pending, {chest, prompt})
                     end
                 end
@@ -325,14 +326,22 @@ function Item.register(context)
                     local hrp = getHRP()
                     if not hrp then break end
                     local chest, prompt = entry[1], entry[2]
-                    attempts[chest] = (attempts[chest] or 0) + 1
+
+                    -- เกมปัดการเปิดทุกครั้งถ้าไม่ Alive (ProcessInteraction เช็ค) -> รอฟื้น
+                    -- ก่อน ไม่เผา attempts: นับ attempts ต่อเมื่อยิงจริงเท่านั้น
+                    if Client and Client.PlayerHandler and not Client.PlayerHandler.Alive then
+                        task.wait(1)
+                    end
 
                     local pos = getChestPos(chest)
                     if pos then
                         pcall(function() hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0)) end)
                         task.wait(0.2)
                     end
-                    if firePrompt(prompt) then task.wait(0.3) end
+                    if firePrompt(prompt) then
+                        attempts[chest] = (attempts[chest] or 0) + 1
+                        task.wait(0.3)
+                    end
                 end
             end
 
