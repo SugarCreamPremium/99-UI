@@ -1,4 +1,4 @@
--- Version 1.00
+-- Version 11.46
 local Campfire = {}
 
 function Campfire.register(context)
@@ -247,17 +247,17 @@ function Campfire.register(context)
     -- ============================================
     -- AXE & TREE HANDLING
     -- ============================================
-    local function getBestAxe()
+    -- หาขวานดีสุดจาก Inventory: มี WeaponResourceDamage = ตัดไม้ได้
+        -- (ไม่จำกัดชื่อ GenericAxe แล้ว ใครมี attribute นี้ก็เป็นขวาน)
+        local function getBestAxe()
         local inv = player:FindFirstChild("Inventory")
         if not inv then return nil end
         local best, bestDmg = nil, -1
         for _, tool in ipairs(inv:GetChildren()) do
-            if tool:GetAttribute("ToolName") == "GenericAxe" then
-                local dmg = tool:GetAttribute("WeaponResourceDamage") or 0
-                if dmg > bestDmg then
-                    bestDmg = dmg
-                    best = tool
-                end
+            local dmg = tool:GetAttribute("WeaponResourceDamage")
+            if dmg and dmg > 0 and dmg > bestDmg then
+                bestDmg = dmg
+                best = tool
             end
         end
         return best
@@ -274,14 +274,15 @@ function Campfire.register(context)
         local char = player.Character
         local th = char and char:FindFirstChild("ToolHandle")
         local currentAxe = th and th:FindFirstChild("OriginalItem") and th.OriginalItem.Value
-        if not currentAxe or currentAxe:GetAttribute("ToolName") ~= "GenericAxe" then
+        -- ของที่ถืออยู่คือขวานไหม = มี WeaponResourceDamage (เช็ค attribute ไม่ใช่ชื่อ)
+        if not currentAxe or not currentAxe:GetAttribute("WeaponResourceDamage") then
             equipAxe(axe)
             task.wait(0.3)
             char = player.Character
             th = char and char:FindFirstChild("ToolHandle")
             currentAxe = th and th:FindFirstChild("OriginalItem") and th.OriginalItem.Value
         end
-        if not currentAxe or currentAxe:GetAttribute("ToolName") ~= "GenericAxe" then
+        if not currentAxe or not currentAxe:GetAttribute("WeaponResourceDamage") then
             return nil
         end
         return currentAxe
