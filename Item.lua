@@ -1,4 +1,4 @@
--- Version 12.55
+-- Version 1.32
 local Item = {}
 
 function Item.register(context)
@@ -241,18 +241,20 @@ function Item.register(context)
     local function firePrompt(prompt)
         if not prompt or not prompt.Enabled then return false end
         local ok
-        if typeof(fireproximityprompt) == "function" then
-            ok = pcall(fireproximityprompt, prompt, 0, true)
-        else
+        -- ยิง Triggered ตรงๆ (เส้นทางเดียวกับกดจริง — เกมต่อ ProcessInteraction ไว้ที่
+        -- ProximityInteraction.Triggered) ไม่สร้าง hold state เลย -> PromptGui "กด E"
+        -- ไม่ค้างบนจอแม้ prompt จะโดน destroy กลางคัน (PromptHidden ไม่ยิง = label ค้าง)
+        ok = pcall(function() prompt.Triggered:Fire(player) end)
+        if not ok then
+            -- เก็บตกเครื่องเล่นที่ Fire สัญญาณไม่ได้ -> จำลองกดค้างแทน
             pcall(function() prompt.HoldDuration = 0 end)
             pcall(function() prompt:InputHoldBegin() end)
             task.wait(0.05)
             pcall(function() prompt:InputHoldEnd() end)
-            ok = true
+            -- เก็บตก: prompt โดน destroy กลาง hold (เกมลบ ProximityAttachment หลังเปิดกล่องสำเร็จ)
+            -- ต้องปิด hold หลังยิงเสมอ ไม่งั้น PromptGui ("กด E เปิดกล่อง") ค้างกลางจอ วาร์ปไปไหนก็ไม่หาย
+            pcall(function() prompt:InputHoldEnd() end)
         end
-        -- เก็บตก: prompt โดน destroy กลาง hold (เกมลบ ProximityAttachment หลังเปิดกล่องสำเร็จ)
-        -- ต้องปิด hold หลังยิงเสมอ ไม่งั้น PromptGui ("กด E เปิดกล่อง") ค้างกลางจอ วาร์ปไปไหนก็ไม่หาย
-        pcall(function() prompt:InputHoldEnd() end)
         return ok
     end
 
@@ -326,6 +328,12 @@ function Item.register(context)
                     end
                     if firePrompt(prompt) then task.wait(0.25) end
                 end
+            end
+
+            -- ปิด hold ค้างของทุก prompt ที่เหลือ (กัน PromptGui "กด E" ติดค้างบนจอ)
+            for _, chest in ipairs(getChests()) do
+                local p = getChestPrompt(chest)
+                if p then pcall(function() p:InputHoldEnd() end) end
             end
 
             -- ปลดล็อค + วาร์ปกลับกองไฟ
