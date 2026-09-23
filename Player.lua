@@ -1,4 +1,4 @@
--- Version 12.13
+-- Version 12.44
 local Player = {}
 
 -- กันดาเมจพื้นฐาน (Melee + Projectile + กับดัก/สิ่งแวดล้อม): กลบ remote รายงานความเสียหายจาก client -> server
@@ -32,6 +32,34 @@ oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
     return oldNamecall(self, ...)
 end))
 
+-- กันหนาว (client-side): สถานะ freeze มี 2 path ที่ apply ฝั่ง client
+--   1. TemperatureClient.BarEmpty -> PlayerFrozen(true) -> debuff "Frozen" -13
+--   2. WalkspeedController attribute listener: Temperature <= 0 -> debuff "ZeroTemperature" -13
+-- server ส่ง Temperature มาเมื่อค่าเปลี่ยน -> เขียนค่าทับทันทีที่เห็น <= 0 (server จะกลับมาเป็น 0 ทุกครั้งที่มัน sync)
+-- = debuff "Frozen"/"ZeroTemperature" ถอดออกเองทันทีที่ signal ทำงาน, แถบ UI ยังโชว์ค่าจริงตอนหนาวปกติ
+local localPlayer = game:GetService("Players").LocalPlayer
+local freezeEnabled = false
+local freezeRunning = false
+
+local function freezeLoop()
+    while freezeEnabled do
+        local t = localPlayer:GetAttribute("Temperature")
+        if t ~= nil and t <= 0 then
+            localPlayer:SetAttribute("Temperature", 100)
+        end
+        task.wait(0.15)
+    end
+    freezeRunning = false
+end
+
+function Player.setNoFreeze(value)
+    freezeEnabled = value == true
+    if freezeEnabled and not freezeRunning then
+        freezeRunning = true
+        task.spawn(freezeLoop)
+    end
+end
+
 function Player.register(context)
     local player = context.Player
     local Client = context.Client
@@ -45,6 +73,12 @@ function Player.register(context)
             Desc = "กันได้แทบจะทุกอย่างในเกมยกเว้น กบและการติดสถานะต่างๆ",
             Value = false,
             Callback = Player.setDamageBlock,
+        })
+        dmgSection:Toggle({
+            Title = "กันหนาว (Freeze)",
+            Desc = "ไม่ให้ติดสถานะหนาวจัดในโซนหิมะ (ทำให้วิ่งได้)",
+            Value = false,
+            Callback = Player.setNoFreeze,
         })
     end
 
