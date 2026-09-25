@@ -1,4 +1,4 @@
--- Version 5.09
+-- Version 6.57
 local Item = {}
 
 function Item.register(context)
@@ -496,6 +496,192 @@ function Item.register(context)
                 Icon = "lock-open",
                 Callback = openAllChests,
             }},
+        })
+    end
+
+    -- ============================================
+    -- ดึงสิ่งของอัตโนมัติ 4 ช่อง (ทำงานพร้อมกันได้)
+    -- ============================================
+    -- รายชื่อของแบบคงที่ 188 ชนิด ไม่ต้องเปิดแมพก่อน
+    -- รวมจาก Databases/HotbarIcons (registry ของทั้งเกม) + สูตรอาหาร + วัตถุดิบที่วางบนพื้น
+    -- ไม่รวม Chest/สิ่งก่อสร้าง — isValidItem กรอง Interaction="ItemChest" ไว้อยู่แล้ว
+    local AUTO_ITEM_NAMES = {
+        "Admin Axe", "Air Rifle", "Alien Grenade", "Alien Shotgun",
+        "Anvil Back", "Anvil Base", "Anvil Front", "Apple",
+        "Armour Trim Kit", "Axe Trim Kit", "BBQ Ribs", "Bandage",
+        "Basketball", "Basketball Egg", "Bee Stinger Spear", "Berry",
+        "Berry Juice", "Berry Juice Pitcher", "Blowpipe", "Bolt",
+        "Bouncing Blade", "Bouquet", "Broken Fan", "Broken Microwave",
+        "Brutal BattleAxe", "Brute Shield", "Cake", "Candied Meat",
+        "Candy Apple", "Candy Corn", "Carnival Basketball", "Carnival Ring",
+        "Carrot", "Carrot Cake", "Carrot Dart", "Casserole",
+        "Chainsaw", "Chair", "Char", "Chilli",
+        "Clowfish", "Coal", "Coin Stack", "Cooked Char",
+        "Cooked Clowfish", "Cooked Eel", "Cooked Lava Eel", "Cooked Lionfish",
+        "Cooked Mackerel", "Cooked Ribs", "Cooked Salmon", "Cooked Shark",
+        "Cooked Steak", "Cooked Swordfish", "Corn", "Corn on the cob",
+        "Corrupted Axe", "Corrupted Revolver", "Corrupted Shotgun", "Corrupted Thrown Axe",
+        "Corruption Scanner", "Cotton Candy", "Crossbow", "Defense Blueprint",
+        "Dino Kid Polaroid", "Dino Kid's Crayon", "Dino Kid's Dino Toy", "Dino Kid's Lunchbox",
+        "Dino Kid's Yoyo", "Eel", "Egg Basket", "Feather",
+        "Flamethrower", "Frozen Shuriken", "Fuel Canister", "Giant Present Blueprint",
+        "Giant Sack", "Good Axe", "Good Rod", "Good Sack",
+        "Good Taming Flute", "Gunslinger List", "Hammer", "Hearty Stew",
+        "Honey Beenade", "Ice Axe", "Ice Bow", "Ice Sword",
+        "Impact Grenade", "Infernal Crossbow", "Infernal Sack", "Infernal Sword",
+        "Jar o' Honey", "Jar o' Jelly", "Jellyfish", "Katana",
+        "Koala Kid's Dreamcatcher", "Koala Kid's Koala Toy", "Koala Kid's Lunchbox", "Kraken Kid's Kraken Toy",
+        "Kraken Kid's Lunchbox", "Kraken Kid's Seashell", "Kunai", "Laser Cannon",
+        "Laser Sword", "Lava Eel", "Leather Body", "Lionfish",
+        "Log", "MRE", "Mackerel", "MedKit",
+        "Metal Chair", "Morningstar", "Morsel", "Necromancer's Staff",
+        "Obsidiron Hammer", "Obsidiron Shield", "Oil Barrel", "Old Axe",
+        "Old Car Engine", "Old Flashlight", "Old Radio", "Old Rod",
+        "Old Sack", "Old Taming Flute", "Paint Brush", "Pelt List",
+        "Peppermint Pelter", "Poison Claws", "Poison Spear", "Potion",
+        "Pumpkin", "Pumpkin Soup", "Raygun", "Recipe Book",
+        "Revolver", "Revolver Ammo", "Ribs", "Rifle",
+        "Rifle Ammo", "Riot Shield", "Roast Turkey", "Salmon",
+        "Sapling", "Scrap", "Scythe", "Seafood Chowder",
+        "Seasoning", "Seed Box", "Shadow Dagger", "Shark",
+        "Sheet Metal", "Small Present Blueprint", "Snowball", "Snowball Cannon",
+        "Spear", "Spicy Swordfish", "Squid Kid's Lunchbox", "Squid Kid's Pocket Watch",
+        "Squid Kid's Squid Toy", "Steak", "Steak Dinner", "Stew",
+        "Strong Axe", "Strong Flashlight", "Strong Rod", "Strong Taming Flute",
+        "Stuffed Peppers", "Stuffing", "Stuffing Bowl", "Support Notes",
+        "Sweet Potato", "Sweet Potato Pie", "Swordfish", "Tactical Shotgun",
+        "Trident", "Trusty Revolver", "Turkey Leg", "Turkey Legs",
+        "Tyre", "Upgrade List", "Vampire Scythe", "Washing Machine",
+        "Watering Can", "Wildfire", "Witch Potion", "Woodsman's Axe",
+    }
+
+    -- ของในโลกมี _2, _3 ต่อท้าย (Log_2) -> ตัดทิ้งตอนเทียบชื่อ
+    local function baseItemName(name)
+        return (name:gsub("_%d+$", ""))
+    end
+
+    -- จุดวาง: ตัวเรา / โต๊ะคราฟ / กองไฟ / รอบกองไฟ 4 จุด
+    local FIRE_RING_RADIUS = 15
+    local AUTO_TARGETS = {
+        {Key = "head",  Label = "ตัวเรา"},
+        {Key = "craft", Label = "โต๊ะคราฟ"},
+        {Key = "fire",  Label = "กองไฟ"},
+        {Key = "fire1", Label = "รอบกองไฟ 1"},
+        {Key = "fire2", Label = "รอบกองไฟ 2"},
+        {Key = "fire3", Label = "รอบกองไฟ 3"},
+        {Key = "fire4", Label = "รอบกองไฟ 4"},
+    }
+    local autoTargetLabels = {}
+    for _, t in ipairs(AUTO_TARGETS) do table.insert(autoTargetLabels, t.Label) end
+
+    -- ผิวโต๊ะ: ใช้กองไม้ + กองโลหะที่วางอยู่บนโต๊ะจริง ค่ากลางสองกอง = กลางโต๊ะ
+    local function getCraftTablePos()
+        local map = workspace:FindFirstChild("Map")
+        local camp = map and map:FindFirstChild("Campground")
+        local bench = camp and camp:FindFirstChild("CraftingBench")
+        if not bench then return nil end
+        local wood = bench:FindFirstChild("PileWood1")
+        local metal = bench:FindFirstChild("PileMetal1")
+        if wood and metal then
+            return (wood.Position + metal.Position) / 2 + Vector3.new(0, 4, 0)
+        end
+        local zone = bench:FindFirstChild("TouchZone")
+        if zone and zone:IsA("BasePart") then
+            return zone.Position + Vector3.new(0, 8, 0)
+        end
+        return nil
+    end
+
+    local function getFireRingPos(index)
+        local firePos = getFirePos()
+        if not firePos then return nil end
+        local angle = (index - 1) * math.pi / 2
+        return firePos + Vector3.new(math.cos(angle) * FIRE_RING_RADIUS, 0, math.sin(angle) * FIRE_RING_RADIUS)
+    end
+
+    local function getAutoTargetPos(key)
+        if key == "fire" then
+            local p = getFirePos()
+            return p and p + Vector3.new(0, 5, 0)
+        elseif key == "craft" then
+            return getCraftTablePos()
+        elseif key and key:match("^fire%d$") then
+            return getFireRingPos(tonumber(key:match("%d+")) or 1)
+        end
+        local head = getHead()
+        return head and head.Position + Vector3.new(0, 5, 0)
+    end
+
+    local autoConfig = {}
+    for i = 1, 4 do
+        autoConfig[i] = {enabled = false, running = false, items = {}, target = "head"}
+    end
+
+    -- แต่ละช่องสแกนเองทุก 0.5 วิ -> เจอของที่เลือกไว้ก็ดึงทันที (ครอบล็อก maxAmount ต่อรอบกันค้าง)
+    local function autoPullLoop(index)
+        local cfg = autoConfig[index]
+        while cfg.enabled do
+            local items = workspace:FindFirstChild("Items")
+            local target = getAutoTargetPos(cfg.target)
+            local pulled = 0
+            if items and target and next(cfg.items) then
+                for _, item in ipairs(items:GetChildren()) do
+                    if pulled >= maxAmount then break end
+                    if cfg.items[baseItemName(item.Name)] and pullSingleItem(item, target) then
+                        pulled = pulled + 1
+                        task.wait(0.05)
+                    end
+                end
+            end
+            task.wait(pulled > 0 and 0.1 or 0.5)
+        end
+        cfg.running = false
+    end
+
+    for i = 1, 4 do
+        local cfg = autoConfig[i]
+        local autoSection = tab:Section({Title = "ช่องดึงอัตโนมัติ " .. i, Opened = i == 1})
+        if not autoSection then break end
+        autoSection:Dropdown({
+            Title = "สิ่งของที่ต้องการ",
+            Values = AUTO_ITEM_NAMES,
+            Value = {},
+            Multi = true,
+            SearchBarEnabled = true,
+            AllowNone = true,
+            Callback = function(value)
+                local list = selectionToList(value)
+                if type(value) == "string" and #list == 1 then
+                    -- WindUI บางครั้งส่ง string แม้ Multi = true -> toggle เอาเอง
+                    cfg.items[list[1]] = not cfg.items[list[1]] or nil
+                else
+                    cfg.items = {}
+                    for _, n in ipairs(list) do cfg.items[n] = true end
+                end
+            end,
+        })
+        autoSection:Dropdown({
+            Title = "จุดวาง",
+            Values = autoTargetLabels,
+            Value = autoTargetLabels[1],
+            AllowNone = false,
+            Callback = function(value)
+                for _, t in ipairs(AUTO_TARGETS) do
+                    if t.Label == value then cfg.target = t.Key end
+                end
+            end,
+        })
+        autoSection:Toggle({
+            Title = "เปิดช่องนี้",
+            Desc = "ดึงของที่เลือกอัตโนมัติทันทีที่เจอ",
+            Value = false,
+            Callback = function(value)
+                cfg.enabled = value
+                if value and not cfg.running then
+                    cfg.running = true
+                    task.spawn(autoPullLoop, i)
+                end
+            end,
         })
     end
 end
