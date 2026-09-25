@@ -1,4 +1,4 @@
--- Version 7.21
+-- Version 7.49
 local Item = {}
 
 function Item.register(context)
@@ -409,25 +409,27 @@ function Item.register(context)
         local names = getAvailableItemNames()
         if #names == 0 then names = {"(ยังไม่มีไอเทม)"} end
         if itemDropdown then
-            itemDropdown:Refresh(names)
+            -- WindUI Select(av) = ตั้ง ap.Value = av (ทับของเดิมทุกครั้ง) -> ต้องส่งตารางชื่อทั้งหมดครั้งเดียว
+            -- ถ้าวน loop เรียก Select(name) ทีละชื่อ จะเหลือแค่ชื่อสุดท้าย
+            local keep = {}
             for name in pairs(selectedItems) do
-                if table.find(names, name) then
-                    itemDropdown:Select(name)
-                end
+                if table.find(names, name) then table.insert(keep, name) end
             end
+            itemDropdown:Select(keep)
+            itemDropdown:Refresh(names)
         end
     end
 
+    -- เริ่มต้นไม่ต้องเลือกอะไร ให้ผู้ใช้เลือกเอง (ไม่เลือกแล้วกดดึง = ไม่เกิดอะไร)
     local initialNames = getAvailableItemNames()
     if #initialNames == 0 then initialNames = {"(ยังไม่มีไอเทม)"} end
-    selectedItems[initialNames[1]] = true
     itemDropdown = section:Dropdown({
         Title = "เลือกสิ่งของ",
         Values = initialNames,
-        Value = {initialNames[1]},
+        Value = {},
         Multi = true,
         SearchBarEnabled = true,
-        AllowNone = false,
+        AllowNone = true,
         Callback = function(value)
             local list = selectionToList(value)
             if type(value) == "string" and #list == 1 then
