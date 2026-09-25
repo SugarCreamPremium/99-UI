@@ -1,4 +1,4 @@
--- Version 4.44
+-- Version 5.13
 local Campfire = {}
 
 function Campfire.register(context)
@@ -908,10 +908,12 @@ function Campfire.register(context)
         -- (เช็คเดียวกันกับ Plant Sapling Loop.lua)
         if Client and Client.PlayerHandler and not Client.PlayerHandler.Alive then return false end
 
-        local hrp = getHRP()
-        if not hrp or not sapling then return false end
+        if not sapling then return false end
 
-        local grass = findGrassAt(hrp.Position)
+        local saplingPos = resolveTreePos(sapling)
+        if not saplingPos then return false end
+
+        local grass = findGrassAt(saplingPos)
         if not grass then return false end
         if not fireSafe(grass) then return false end
 
@@ -922,8 +924,7 @@ function Campfire.register(context)
             -- Acorn: เกมต้องการระยะ 4-60 จาก tree root (ส่งตำแหน่งของตัวมันเอง)
             -- Client.Events.RequestPlantAcorn เป็น wrapper (UtilityModules/Events) ไม่ใช่ Instance
             -- ใช้ :InvokeServer ตรงๆ แบบเดียวกับเกม (TreeRootClient.lua:120)
-            local pos = resolveTreePos(sapling) or hrp.Position
-            local ok, res = pcall(function() return events.RequestPlantAcorn:InvokeServer(sapling, pos) end)
+            local ok, res = pcall(function() return events.RequestPlantAcorn:InvokeServer(sapling, saplingPos) end)
             if not (ok and res and res.Success) then
                 sapling.Parent = parent
                 return false
@@ -941,12 +942,14 @@ function Campfire.register(context)
         return true
     end
 
-    -- ดึง Sapling มาไว้ที่ตัวเราก่อนแล้วค่อยปลูก (แบบเดียวกับ Auto Plant Sapling Loop.lua)
+    -- ดึง Sapling ไปวางที่ตำแหน่งเป้าหมายก่อนแล้วค่อยปลูก (แบบเดียวกับ Auto Plant Sapling Loop.lua)
     -- ต้องผ่าน drag remote ของเกม (RequestStartDraggingItem -> PivotTo -> StopDraggingItem)
     -- การย้ายตัวเองโดยไม่ผ่าน drag ทำให้เซิร์ฟเวอร์ไม่รับรู้/reset ตำแหน่ง
-    local function pullItemToFeet(sapling)
+    -- ไม่ส่ง targetPos = ลากมาวางที่เท้าเรา (เดิม) / ส่งตำแหน่ง = ลากไปวางจุดนั้นเลย ไม่ต้องวาร์ปตัวเอง
+    local function pullItemToFeet(sapling, targetPos)
         local hrp = getHRP()
         if not hrp or not sapling then return false end
+        local dest = targetPos or hrp.Position
         local remoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents")
         local startDrag = remoteEvents and remoteEvents:FindFirstChild("RequestStartDraggingItem")
         local stopDrag = remoteEvents and remoteEvents:FindFirstChild("StopDraggingItem")
@@ -954,9 +957,9 @@ function Campfire.register(context)
         local ok = pcall(function() startDrag:FireServer(sapling) end)
         task.wait(0.02)
         if sapling:IsA("Model") then
-            pcall(function() sapling:PivotTo(CFrame.new(hrp.Position)) end)
+            pcall(function() sapling:PivotTo(CFrame.new(dest)) end)
         elseif sapling:IsA("BasePart") then
-            pcall(function() sapling.CFrame = CFrame.new(hrp.Position) end)
+            pcall(function() sapling.CFrame = CFrame.new(dest) end)
         end
         task.wait(0.02)
         pcall(function() stopDrag:FireServer(sapling) end)
@@ -995,7 +998,7 @@ function Campfire.register(context)
     local chopSection = tab:Section({Title = "ตัดต้นไม้รอบตัว", Opened = true})
     if chopSection then
         chopSection:Toggle({
-            Title = "ตัดต้นไม้ Kill Aura",
+            Title = "ตัดต้นไม้ (Kill Aura)",
             Desc = "ถือขวาน/เลื่อยด้วยตัวเอง แล้วจะตัดทุกต้นที่ตัดได้ในระยะพร้อมกัน",
             Value = false,
             Callback = setChopAura,
@@ -1011,8 +1014,8 @@ function Campfire.register(context)
     local plantSection = tab:Section({Title = "ปลูกต้นไม้", Opened = true})
     if plantSection then
         plantSection:Toggle({
-            Title = "ปลูก Sapling อัตโนมัติ",
-            Desc = "หา Sapling แล้วปลูกใต้เท้าทันที (ต้องห่างจากกองไฟ > 40)",
+            Title = "ปลูกต้นไม้ใต้เท้า",
+            Desc = "จะปลูกใต้เท้าทันทีที่มีต้นกล้า (ต้องห่างจากกองไฟ > 40)",
             Value = false,
             Callback = setPlantEnabled,
         })
@@ -1053,28 +1056,22 @@ function Campfire.register(context)
             local step = (2 * math.pi) / count
 
             while circleEnabled do
-                local hrp = getHRP()
                 local sapling = findSapling()
-                if hrp and sapling then
-                    -- จุดรอบวง: เริ่มที่ตำแหน่งเดิมก่อน แล้วไล่ทีละจุด
+                if sapling then
                     local angle = step * (circleIndex - 1)
                     local radius = math.max(circleRadius, 40)
-                    local spot = findGrassAt(firePos + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius))
-                        or (firePos + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius))
+                    local xz = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+                    -- raycast จากเหนือพื้นลงมา (fireSafe/findGrassAt ยิงลง 55)
+                    local spot = findGrassAt(firePos + xz + Vector3.new(0, 20, 0)) or (firePos + xz)
                     circleIndex = (circleIndex % count) + 1
 
-                    if fireSafe(spot) then
-                        hrp.CFrame = CFrame.new(spot + Vector3.new(0, 3, 0))
-                        task.wait(0.1)
-                        local ok, planted = pcall(function()
-                            pullItemToFeet(sapling)
-                            task.wait(0.05)
-                            return plantSaplingAtFeet(sapling)
-                        end)
-                        task.wait(ok and planted and 0.15 or 0.4)
-                    else
-                        task.wait(0.1)
-                    end
+                    -- ลาก Sapling ไปวางที่จุดบนวงเลย ไม่ต้องวาร์ปตัวเอง
+                    local ok, planted = pcall(function()
+                        pullItemToFeet(sapling, spot)
+                        task.wait(0.05)
+                        return plantSaplingAtFeet(sapling)
+                    end)
+                    task.wait(ok and planted and 0.15 or 0.4)
                 else
                     task.wait(0.5)
                 end
@@ -1083,8 +1080,8 @@ function Campfire.register(context)
         end
 
         plantSection:Toggle({
-            Title = "ปลูกรอบกองไฟเป็นวงกลม",
-            Desc = "วาร์ปไปปลูก Sapling ทีละจุดรอบวงกลม (ต้องห่างจากกองไฟ >= 40)",
+            Title = "ปลูกต้นไม้รอบกองไฟ",
+            Desc = "ปลูกทีละจุดรอบวงกลม",
             Value = false,
             Callback = setCircleEnabled,
         })
@@ -1095,10 +1092,10 @@ function Campfire.register(context)
             Callback = function(value) circleRadius = math.clamp(value, 40, 150) end,
         })
         plantSection:Slider({
-            Title = "จำนวนจุดต่อรอบ",
-            Value = {Min = 4, Max = 36, Default = circleCount},
+            Title = "จำนวนจุดปลูกต้นไม้รอบกองไฟ",
+            Value = {Min = 10, Max = 50, Default = circleCount},
             Step = 1,
-            Callback = function(value) circleCount = math.clamp(value, 4, 36) end,
+            Callback = function(value) circleCount = math.clamp(value, 10, 50) end,
         })
     end
 end
