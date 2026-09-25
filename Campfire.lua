@@ -1,4 +1,4 @@
--- Version 10.32
+-- Version 4.44
 local Campfire = {}
 
 function Campfire.register(context)
@@ -1015,6 +1015,90 @@ function Campfire.register(context)
             Desc = "หา Sapling แล้วปลูกใต้เท้าทันที (ต้องห่างจากกองไฟ > 40)",
             Value = false,
             Callback = setPlantEnabled,
+        })
+
+        -- ============================================
+        -- ปลูกต้นไม้เป็นวงกลมรอบกองไฟ
+        -- ============================================
+        -- กองไฟอยู่ที่ Center (PrimaryPart) — ต้องห่าง >= 40 ตามที่ fireSafe บังคับ
+        local circleEnabled = false
+        local circleRunning = false
+        local circleRadius = 50
+        local circleCount = 12
+        local circleIndex = 1
+
+        -- forward declaration: setCircleEnabled เรียก circleLoop ก่อนถึงจุดนิยาม
+        -- (ไม่ declare ล่วงหน้า Lua จะ resolve เป็น global nil -> error ตอนกด toggle)
+        local circleLoop
+
+        local function setCircleEnabled(value)
+            circleEnabled = value
+            if circleEnabled and not circleRunning then
+                circleRunning = true
+                circleIndex = 1
+                task.spawn(circleLoop)
+            end
+        end
+
+        circleLoop = function()
+            local mainFire = getMainFire()
+            local firePart = mainFire and (mainFire.PrimaryPart or mainFire:FindFirstChildWhichIsA("BasePart"))
+            local firePos = firePart and firePart.Position
+            if not firePos then
+                circleRunning = false
+                return
+            end
+
+            local count = math.clamp(circleCount, 4, 36)
+            local step = (2 * math.pi) / count
+
+            while circleEnabled do
+                local hrp = getHRP()
+                local sapling = findSapling()
+                if hrp and sapling then
+                    -- จุดรอบวง: เริ่มที่ตำแหน่งเดิมก่อน แล้วไล่ทีละจุด
+                    local angle = step * (circleIndex - 1)
+                    local radius = math.max(circleRadius, 40)
+                    local spot = findGrassAt(firePos + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius))
+                        or (firePos + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius))
+                    circleIndex = (circleIndex % count) + 1
+
+                    if fireSafe(spot) then
+                        hrp.CFrame = CFrame.new(spot + Vector3.new(0, 3, 0))
+                        task.wait(0.1)
+                        local ok, planted = pcall(function()
+                            pullItemToFeet(sapling)
+                            task.wait(0.05)
+                            return plantSaplingAtFeet(sapling)
+                        end)
+                        task.wait(ok and planted and 0.15 or 0.4)
+                    else
+                        task.wait(0.1)
+                    end
+                else
+                    task.wait(0.5)
+                end
+            end
+            circleRunning = false
+        end
+
+        plantSection:Toggle({
+            Title = "ปลูกรอบกองไฟเป็นวงกลม",
+            Desc = "วาร์ปไปปลูก Sapling ทีละจุดรอบวงกลม (ต้องห่างจากกองไฟ >= 40)",
+            Value = false,
+            Callback = setCircleEnabled,
+        })
+        plantSection:Slider({
+            Title = "รัศมีวง",
+            Value = {Min = 40, Max = 150, Default = circleRadius},
+            Step = 1,
+            Callback = function(value) circleRadius = math.clamp(value, 40, 150) end,
+        })
+        plantSection:Slider({
+            Title = "จำนวนจุดต่อรอบ",
+            Value = {Min = 4, Max = 36, Default = circleCount},
+            Step = 1,
+            Callback = function(value) circleCount = math.clamp(value, 4, 36) end,
         })
     end
 end
