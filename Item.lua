@@ -1,4 +1,4 @@
--- Version 6.57
+-- Version 7.21
 local Item = {}
 
 function Item.register(context)
@@ -296,6 +296,16 @@ function Item.register(context)
         return part and part.Position
     end
 
+    -- จุดปล่อยของบนโต๊ะคราฟ (ใช้ร่วมกันทั้ง "ดึงสิ่งของ" และช่องดึงอัตโนมัติ)
+    local function getCraftDropPos()
+        local map = workspace:FindFirstChild("Map")
+        local camp = map and map:FindFirstChild("Campground")
+        local craft = camp and camp:FindFirstChild("CraftingBench")
+        local zone = craft and craft:FindFirstChild("TouchZone")
+        if zone and zone:IsA("BasePart") then return zone.Position + Vector3.new(0, 15, 0) end
+        return nil
+    end
+
     local function openAllChests()
         if openingChests then return end
 
@@ -453,11 +463,8 @@ function Item.register(context)
             local firePos = getFirePos()
             if firePos then return firePos + Vector3.new(0, 15, 0) end
         elseif pullTarget == "craft" then
-            local map = workspace:FindFirstChild("Map")
-            local camp = map and map:FindFirstChild("Campground")
-            local craft = camp and camp:FindFirstChild("CraftingBench")
-            local zone = craft and craft:FindFirstChild("TouchZone")
-            if zone and zone:IsA("BasePart") then return zone.Position + Vector3.new(0, 15, 0) end
+            local pos = getCraftDropPos()
+            if pos then return pos end
         end
         local head = getHead()
         return head and head.Position + Vector3.new(0, 15, 0)
@@ -561,7 +568,7 @@ function Item.register(context)
     end
 
     -- จุดวาง: ตัวเรา / โต๊ะคราฟ / กองไฟ / รอบกองไฟ 4 จุด
-    local FIRE_RING_RADIUS = 15
+    local FIRE_RING_RADIUS = 35
     local AUTO_TARGETS = {
         {Key = "head",  Label = "ตัวเรา"},
         {Key = "craft", Label = "โต๊ะคราฟ"},
@@ -575,23 +582,6 @@ function Item.register(context)
     for _, t in ipairs(AUTO_TARGETS) do table.insert(autoTargetLabels, t.Label) end
 
     -- ผิวโต๊ะ: ใช้กองไม้ + กองโลหะที่วางอยู่บนโต๊ะจริง ค่ากลางสองกอง = กลางโต๊ะ
-    local function getCraftTablePos()
-        local map = workspace:FindFirstChild("Map")
-        local camp = map and map:FindFirstChild("Campground")
-        local bench = camp and camp:FindFirstChild("CraftingBench")
-        if not bench then return nil end
-        local wood = bench:FindFirstChild("PileWood1")
-        local metal = bench:FindFirstChild("PileMetal1")
-        if wood and metal then
-            return (wood.Position + metal.Position) / 2 + Vector3.new(0, 4, 0)
-        end
-        local zone = bench:FindFirstChild("TouchZone")
-        if zone and zone:IsA("BasePart") then
-            return zone.Position + Vector3.new(0, 8, 0)
-        end
-        return nil
-    end
-
     local function getFireRingPos(index)
         local firePos = getFirePos()
         if not firePos then return nil end
@@ -604,7 +594,8 @@ function Item.register(context)
             local p = getFirePos()
             return p and p + Vector3.new(0, 5, 0)
         elseif key == "craft" then
-            return getCraftTablePos()
+            -- จุดเดียวกับ "ดึงสิ่งของ > จุดดึงของ > โต๊ะคราฟ"
+            return getCraftDropPos()
         elseif key and key:match("^fire%d$") then
             return getFireRingPos(tonumber(key:match("%d+")) or 1)
         end
@@ -617,6 +608,10 @@ function Item.register(context)
         autoConfig[i] = {enabled = false, running = false, items = {}, target = "head"}
     end
 
+    -- ของที่ดึงไปแล้วห้ามดึงซ้ำตลอดเซสชัน (strong table ไม่พึ่ง GC)
+    -- ใช้ set เดียวกันทุกช่อง -> ช่อง 2 ก็จะไม่ไปดึงชิ้นที่ช่อง 1 ดึงไปแล้ว
+    local pulledOnce = {}
+
     -- แต่ละช่องสแกนเองทุก 0.5 วิ -> เจอของที่เลือกไว้ก็ดึงทันที (ครอบล็อก maxAmount ต่อรอบกันค้าง)
     local function autoPullLoop(index)
         local cfg = autoConfig[index]
@@ -627,7 +622,9 @@ function Item.register(context)
             if items and target and next(cfg.items) then
                 for _, item in ipairs(items:GetChildren()) do
                     if pulled >= maxAmount then break end
-                    if cfg.items[baseItemName(item.Name)] and pullSingleItem(item, target) then
+                    if not pulledOnce[item] and cfg.items[baseItemName(item.Name)]
+                        and pullSingleItem(item, target) then
+                        pulledOnce[item] = true
                         pulled = pulled + 1
                         task.wait(0.05)
                     end
@@ -643,7 +640,7 @@ function Item.register(context)
         local autoSection = tab:Section({Title = "ช่องดึงอัตโนมัติ " .. i, Opened = i == 1})
         if not autoSection then break end
         autoSection:Dropdown({
-            Title = "สิ่งของที่ต้องการ",
+            Title = "ของที่จะดึง",
             Values = AUTO_ITEM_NAMES,
             Value = {},
             Multi = true,
@@ -661,7 +658,7 @@ function Item.register(context)
             end,
         })
         autoSection:Dropdown({
-            Title = "จุดวาง",
+            Title = "จุดปล่อย",
             Values = autoTargetLabels,
             Value = autoTargetLabels[1],
             AllowNone = false,
@@ -672,7 +669,7 @@ function Item.register(context)
             end,
         })
         autoSection:Toggle({
-            Title = "เปิดช่องนี้",
+            Title = "เปิดดึงของ",
             Desc = "ดึงของที่เลือกอัตโนมัติทันทีที่เจอ",
             Value = false,
             Callback = function(value)
