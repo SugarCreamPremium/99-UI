@@ -1,4 +1,4 @@
--- Version 5.31
+-- Version 5.35
 local Other = {}
 
 function Other.register(context)
@@ -75,37 +75,41 @@ function Other.register(context)
     -- ============================================
     -- จาก Farm Map/Lighting: FogStart=20, FogEnd=150, FogColor ม่วงเข้ม
     -- ไม่มี Atmosphere เลย -> หมอกมาจาก Lighting.Fog* ล้วน ตัดที่นี่จบ
-    -- เกมมี day/night cycle เขียนค่าหมอกกลับเอง -> ต้องวนดันซ้ำ ไม่ใช่ตั้งครั้งเดียว
+    -- เกมมี day/night cycle เขียนค่าหมอกกลับเอง -> ฟังด้วย GetPropertyChangedSignal
+    -- แทนการวน: เกิดทันทีที่เกมเขียนค่า และไม่มีลูปคอยเหมือนแบบ poll (ไม่กินสเปคขณะเล่น)
     local Lighting = game:GetService("Lighting")
-    local noFog = false
-    local noFogRunning = false
     local fogOriginal = nil
+    local fogConns = nil
 
-    local function restoreFog()
-        if not fogOriginal then return end
-        pcall(function() Lighting.FogStart = fogOriginal.Start end)
-        pcall(function() Lighting.FogEnd = fogOriginal.End end)
+    local function removeFog()
+        if not fogOriginal then
+            fogOriginal = {Start = Lighting.FogStart, End = Lighting.FogEnd}
+        end
+        -- ตั้งค่าเดิมซ้ำ = Roblox ไม่ยิง signal กลับ -> ไม่เกิด recursion
+        pcall(function() Lighting.FogStart = 0 end)
+        pcall(function() Lighting.FogEnd = 1e9 end)
     end
 
     local function setNoFog(value)
-        noFog = value
         if value then
-            if not noFogRunning then
-                noFogRunning = true
-                task.spawn(function()
-                    while noFog do
-                        if not fogOriginal then
-                            fogOriginal = {Start = Lighting.FogStart, End = Lighting.FogEnd}
-                        end
-                        pcall(function() Lighting.FogStart = 0 end)
-                        pcall(function() Lighting.FogEnd = 1e9 end)
-                        task.wait(0.5)
-                    end
-                    noFogRunning = false
-                end)
+            removeFog()
+            if not fogConns then
+                fogConns = {
+                    Lighting:GetPropertyChangedSignal("FogStart"):Connect(removeFog),
+                    Lighting:GetPropertyChangedSignal("FogEnd"):Connect(removeFog),
+                }
             end
         else
-            restoreFog()
+            if fogConns then
+                for _, c in ipairs(fogConns) do
+                    pcall(function() c:Disconnect() end)
+                end
+                fogConns = nil
+            end
+            if fogOriginal then
+                pcall(function() Lighting.FogStart = fogOriginal.Start end)
+                pcall(function() Lighting.FogEnd = fogOriginal.End end)
+            end
         end
     end
 
