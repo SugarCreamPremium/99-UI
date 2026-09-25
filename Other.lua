@@ -1,4 +1,4 @@
--- Version 9.31
+-- Version 5.31
 local Other = {}
 
 function Other.register(context)
@@ -67,6 +67,55 @@ function Other.register(context)
             Title = "กำจัด" .. animal.Thai .. "อัตโนมัติ (" .. animal.Name .. ")",
             Value = false,
             Callback = function(value) setWatcher(animal.Name, value) end,
+        })
+    end
+
+    -- ============================================
+    -- ภาพและแสง: ลบหมอก
+    -- ============================================
+    -- จาก Farm Map/Lighting: FogStart=20, FogEnd=150, FogColor ม่วงเข้ม
+    -- ไม่มี Atmosphere เลย -> หมอกมาจาก Lighting.Fog* ล้วน ตัดที่นี่จบ
+    -- เกมมี day/night cycle เขียนค่าหมอกกลับเอง -> ต้องวนดันซ้ำ ไม่ใช่ตั้งครั้งเดียว
+    local Lighting = game:GetService("Lighting")
+    local noFog = false
+    local noFogRunning = false
+    local fogOriginal = nil
+
+    local function restoreFog()
+        if not fogOriginal then return end
+        pcall(function() Lighting.FogStart = fogOriginal.Start end)
+        pcall(function() Lighting.FogEnd = fogOriginal.End end)
+    end
+
+    local function setNoFog(value)
+        noFog = value
+        if value then
+            if not noFogRunning then
+                noFogRunning = true
+                task.spawn(function()
+                    while noFog do
+                        if not fogOriginal then
+                            fogOriginal = {Start = Lighting.FogStart, End = Lighting.FogEnd}
+                        end
+                        pcall(function() Lighting.FogStart = 0 end)
+                        pcall(function() Lighting.FogEnd = 1e9 end)
+                        task.wait(0.5)
+                    end
+                    noFogRunning = false
+                end)
+            end
+        else
+            restoreFog()
+        end
+    end
+
+    local visSection = tab:Section({Title = "ภาพและแสง", Opened = true})
+    if visSection then
+        visSection:Toggle({
+            Title = "ลบหมอก",
+            Desc = "ลบหมอกออกหมด เพื่อจะได้มองเห็นได้ชัด (ปิดแล้วจะมีหมอกเหมือนเดิม)",
+            Value = false,
+            Callback = setNoFog,
         })
     end
 end
