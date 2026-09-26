@@ -1,4 +1,4 @@
--- Version 2.53
+-- Version 2.59
 local Other = {}
 
 function Other.register(context)
@@ -137,16 +137,13 @@ function Other.register(context)
         pcall(function() obj[prop] = value end)
     end
 
-    -- Material กลุ่มนี้มีลายสลักอยู่ในตัว Roblox เอง แม้ไม่มี Decal/Texture ก็ยังเห็นลาย
-    local TEXTURED = {
-        Wood = true, WoodPlanks = true, Marble = true, Slate = true, Concrete = true,
-        Granite = true, Brick = true, Pebble = true, Cobblestone = true, Rock = true,
-        Sand = true, Fabric = true, Ground = true, Asphalt = true, Salt = true,
-        Mud = true, Carpet = true, CeramicTiles = true, ClayRoofTiles = true,
-        RoofShingles = true, Leather = true, Plaster = true, DiamondPlate = true,
-        CorrodedMetal = true, LeafyGrass = true, Pavement = true, CrackedLava = true,
-        Aisle = true, Glitch = true,
-    }
+    -- ฟอกเข้าหาสีขาวกี่ % (0 = ไม่ฟอก เหมือนที่ FlatFPS.lua ตั้งไว้ตอนนี้)
+    local PLASTIFY_BY = 0
+
+    local function plastifyColor(c)
+        if not c or PLASTIFY_BY <= 0 then return c end
+        return c:Lerp(Color3.new(1, 1, 1), math.clamp(PLASTIFY_BY, 0, 1))
+    end
 
     local VFX_CLASSES = {
         ParticleEmitter = true, Smoke = true, Fire = true,
@@ -173,6 +170,17 @@ function Other.register(context)
         if isCharacter(o) then return end
         local cn = o.ClassName
 
+        -- BodyColors ไม่มี property ชื่อ Color3 (ใช้สีตัวเป็นตัวอ้างอิงแทน)
+        if cn == "BodyColors" then
+            local c = plastifyColor(o.TorsoColor3)
+            gfxSet(o, "HeadColor3", c)
+            gfxSet(o, "LeftArmColor3", c)
+            gfxSet(o, "RightArmColor3", c)
+            gfxSet(o, "LeftLegColor3", c)
+            gfxSet(o, "RightLegColor3", c)
+            gfxSet(o, "TorsoColor3", c)
+        end
+
         if cn == "Decal" or cn == "Texture" then
             -- ซ่อนภาพที่ติดอยู่บนตัว เหลือสีของชิ้นส่วนล้วน
             gfxSet(o, "Transparency", 1)
@@ -185,9 +193,10 @@ function Other.register(context)
         elseif o:IsA("BasePart") then
             gfxSet(o, "TextureID", "")
             gfxSet(o, "MaterialVariant", "")
-            if TEXTURED[o.Material] then
-                gfxSet(o, "Material", Enum.Material.Plastic)
-            end
+            gfxSet(o, "Material", Enum.Material.Plastic)
+            gfxSet(o, "Color", plastifyColor(o.Color))
+        elseif o:IsA("ImageLabel") or o:IsA("ImageButton") or o:IsA("ImageRect") then
+            gfxSet(o, "Image", "")
         elseif o:IsA("Sky") then
             gfxSet(o, "SkyboxBk", "")
             gfxSet(o, "SkyboxDn", "")
@@ -214,6 +223,14 @@ function Other.register(context)
         -- ชื่อเดิมคือ Forward แต่ Roblox เปลี่ยนเป็น Future แล้ว
         -- เอาไว้ใน pcall เพราะ Enum ถูกประเมินก่อนเข้า gfxSet
         pcall(function() gfxSet(Lighting, "Technology", Enum.Technology.Future) end)
+
+        -- คุณภาพกราฟิกของ client (กู้คืนไม่ได้ เพราะไม่ใช่ property ของ instance)
+        pcall(function() workspace.QualityLevel = Enum.QualityLevel.Level1 end)
+        pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level1 end)
+        pcall(function() settings().Rendering.AntiAliasingQuality = 0 end)
+        pcall(function() settings().Game.ShadowQuality = Enum.ShadowQuality.ShadowQuality0 end)
+        pcall(function() settings().Game.EffectsQuality = Enum.EffectsQuality.EffectsQuality0 end)
+        pcall(function() settings().Game.TransmissionQuality = Enum.TransmissionQuality.TransmissionQuality0 end)
     end
 
     local gfxConns = nil
