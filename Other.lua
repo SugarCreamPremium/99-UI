@@ -1,4 +1,4 @@
--- Version 2.59
+-- Version 3.07
 local Other = {}
 
 function Other.register(context)
@@ -195,8 +195,6 @@ function Other.register(context)
             gfxSet(o, "MaterialVariant", "")
             gfxSet(o, "Material", Enum.Material.Plastic)
             gfxSet(o, "Color", plastifyColor(o.Color))
-        elseif o:IsA("ImageLabel") or o:IsA("ImageButton") or o:IsA("ImageRect") then
-            gfxSet(o, "Image", "")
         elseif o:IsA("Sky") then
             gfxSet(o, "SkyboxBk", "")
             gfxSet(o, "SkyboxDn", "")
