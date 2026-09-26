@@ -1,4 +1,4 @@
--- Version 5.35
+-- Version 12.26
 local Other = {}
 
 function Other.register(context)
@@ -120,6 +120,64 @@ function Other.register(context)
             Desc = "ลบหมอกออกหมด เพื่อจะได้มองเห็นได้ชัด (ปิดแล้วจะมีหมอกเหมือนเดิม)",
             Value = false,
             Callback = setNoFog,
+        })
+    end
+
+    -- ============================================
+    -- ProximityPrompt: กดทันที ไม่ต้องกดค้าง
+    -- ============================================
+    -- เกมตั้ง HoldDuration ไว้ก่อน Parent (ดู ChristmasDecorClient/BaseDefenderClass)
+    -- แต่ Scavenger (4.4 วิ) กับ Explorer เขียนค่าทับทีหลัง -> ต้องดันซ้ำเป็นระยะ
+    local instantPrompts = false
+    local promptRunning = false
+    local promptConns = nil
+
+    local function zeroHold()
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("ProximityPrompt") and obj.HoldDuration ~= 0 then
+                pcall(function() obj.HoldDuration = 0 end)
+            end
+        end
+    end
+
+    local function setInstantPrompts(value)
+        instantPrompts = value
+        if value then
+            if not promptConns then
+                -- จับ prompt ที่เพิ่งโผล่ (เกมสร้างตอนเล่นจริง ไม่ได้อยู่ตอนโหลด)
+                promptConns = {
+                    workspace.DescendantAdded:Connect(function(obj)
+                        if obj:IsA("ProximityPrompt") then
+                            pcall(function() obj.HoldDuration = 0 end)
+                        end
+                    end),
+                }
+            end
+            if not promptRunning then
+                promptRunning = true
+                task.spawn(function()
+                    while instantPrompts do
+                        zeroHold()
+                        task.wait(0.5)
+                    end
+                    promptRunning = false
+                end)
+            end
+        elseif promptConns then
+            for _, c in ipairs(promptConns) do
+                pcall(function() c:Disconnect() end)
+            end
+            promptConns = nil
+        end
+    end
+
+    local promptSection = tab:Section({Title = "ปุ่มโต้ตอบ", Opened = true})
+    if promptSection then
+        promptSection:Toggle({
+            Title = "กด ProximityPrompt ทันที",
+            Desc = "ตัดเวลากดค้างทุกปุ่ม (เปิดหีบ 5.5 วิ -> ทันที)",
+            Value = false,
+            Callback = setInstantPrompts,
         })
     end
 end
