@@ -1,4 +1,4 @@
--- Version 12.26
+-- Version 12.32
 local Other = {}
 
 function Other.register(context)
@@ -175,7 +175,7 @@ function Other.register(context)
     if promptSection then
         promptSection:Toggle({
             Title = "กด ProximityPrompt ทันที",
-            Desc = "ตัดเวลากดค้างทุกปุ่ม (เปิดหีบ 5.5 วิ -> ทันที)",
+            Desc = "ตัดเวลากดค้างทุกปุ่ม (ทำให้เปิดได้ทันที)",
             Value = false,
             Callback = setInstantPrompts,
         })
