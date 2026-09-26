@@ -1,4 +1,4 @@
--- Version 5.32
+-- Version 5.38
 local Player = {}
 
 -- กันดาเมจพื้นฐาน (Melee + Projectile + กับดัก/สิ่งแวดล้อม): กลบ remote รายงานความเสียหายจาก client -> server
@@ -179,7 +179,7 @@ function Player.register(context)
 
         local pos = Instance.new("AlignPosition")
         pos.Mode = Enum.PositionAlignmentMode.OneAttachment
-        pos.MaxForce = 1e6
+        pos.MaxForce = 1e7
         pos.Responsiveness = 20
         pos.Attachment0 = pivot
         pos.Parent = hrp
@@ -235,12 +235,13 @@ function Player.register(context)
 
             local unit = dir.Magnitude > 0 and dir.Unit or Vector3.zero
             local step = flySpeed * dt
-            -- เดินเป้าหมายไปข้างหน้าตามความเร็ว แต่ห้ามห่างจากตัวจริงเกิน 2 เฟรม
-            -- (ถ้าไม่จำกัด: ชนกำแพง เป้าหมายวิ่งไปข้างหลังกำแพง พอปล่อยปุ่มตัวกระโดดทะลุ)
-            if not flyTarget or (flyTarget - hrp.Position).Magnitude > step * 2 then
-                flyTarget = hrp.Position
+            -- ให้เป้าหมายนำหน้าได้ถึง 8 เฟรม เพื่อให้ constraint มีที่เร่งตัวละครให้ทัน
+            -- (ถ้านำหน้าแค่ 1-2 เฟรม constraint เร่งไม่ทัน เป้าหมายเดินหนีไปเรื่อยๆ = บินช้า)
+            -- นำหน้าเกิน 8 เฟรม = ติดกำแพง/ติดของ ดึงเป้าหมายกลับมากดไว้ที่ตัวละคร กำแพงจึงหยุดได้
+            flyTarget = (flyTarget or hrp.Position) + unit * step
+            if (flyTarget - hrp.Position).Magnitude > step * 8 then
+                flyTarget = hrp.Position + unit * step
             end
-            flyTarget = flyTarget + unit * step
 
             flyRig[2].Position = flyTarget
             flyRig[3].CFrame = CFrame.lookAt(Vector3.zero, cam.CFrame.LookVector)
