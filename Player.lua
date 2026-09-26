@@ -1,4 +1,4 @@
--- Version 5.01
+-- Version 5.12
 local Player = {}
 
 -- กันดาเมจพื้นฐาน (Melee + Projectile + กับดัก/สิ่งแวดล้อม): กลบ remote รายงานความเสียหายจาก client -> server
@@ -154,11 +154,12 @@ function Player.register(context)
     end)
 
     -- เกมไม่มีระบบบินของผู้เล่น ต้องทำเอง
-    -- ไม่ใช้ Anchored (ทะลุฉาก + Touched ไม่ทำงาน) และไม่ใช้ LinearVelocity
-    -- เพราะ AntiFlingClient เขียน AssemblyLinearVelocity ทับทุกเฟรม และ Humanoid
-    -- ตอน PlatformStand = true ก็ยึดตำแหน่งตัวเองอยู่ -> actuator ของเราแพ้ทั้งสองทาง
-    -- วิธีที่ได้ผลคือย้าย CFrame เอง แล้วรายงานความเร็วให้ตรงกับที่ย้ายเสมอ
-    -- (รายงานไม่ตรง = ฟิสิกส์ดึงตัวกลับจุดเดิม = ตัวสั่น คือบั๊กเดิมตอนใช้ BodyVelocity)
+    -- ไม่ใช้ Anchored (ทะลุฉาก + Touched ไม่ทำงาน + ถูกเกมเตะตอนชน)
+    -- และไม่ใช้ LinearVelocity/AlignOrientation เพราะแพ้สองทาง:
+    --   AntiFlingClient เขียน AssemblyLinearVelocity ทับทุกเฟรม (เกิน 300 ตัดเหลือ 100)
+    --   Humanoid ตอน PlatformStand = true ยึดตำแหน่งตัวเอง -> actuator แรงไม่พอขยับ
+    -- ที่ได้ผลคือย้าย CFrame เอง แล้วรายงานความเร็วให้ตรงกับที่ย้ายเสมอ
+    -- (รายงานไม่ตรง = ฟิสิกส์เห็นความเร็วไม่ตรงตำแหน่ง แล้วดึงกลับ = ตัวสั่น)
     local flySpeed = 100
     local flyConn = nil
     local flyPos = nil -- ตำแหน่งที่เราสั่งเอง เพราะที่ฟิสิกส์รายงานมันไม่ตรงเสมอ
@@ -171,10 +172,7 @@ function Player.register(context)
             end
             flyPos = nil
             local hum = getHumanoid()
-            if hum then
-                pcall(function() hum.PlatformStand = false end)
-                pcall(function() hum.AutoRotate = true end)
-            end
+            if hum then pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end) end
             return
         end
         if flyConn then return end
@@ -203,7 +201,7 @@ function Player.register(context)
             if not flyPos or (flyPos - hrp.Position).Magnitude > 5 then flyPos = hrp.Position end
             flyPos = flyPos + unit * (flySpeed * dt)
 
-            -- ไม่กดปุ่ม = ยืนนิ่งกลางอากาศ แต่ยังหันหน้าตามกล้อง
+            -- ไม่กดปุ่ม = ค้างกลางอากาศ แต่ยังหันหน้าตามกล้อง
             hrp.CFrame = CFrame.lookAt(flyPos, flyPos + cam.CFrame.LookVector)
             hrp.AssemblyLinearVelocity = unit * flySpeed
         end)
