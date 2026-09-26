@@ -1,4 +1,4 @@
--- Version 3.45
+-- Version 3.54
 local Player = {}
 
 -- กันดาเมจพื้นฐาน (Melee + Projectile + กับดัก/สิ่งแวดล้อม): กลบ remote รายงานความเสียหายจาก client -> server
@@ -157,12 +157,17 @@ function Player.register(context)
     -- เกมไม่มีระบบบินของผู้เล่น ต้องทำเอง
     local flySpeed = 100
     local flyConn = nil
+    local flyMover = nil
 
     local function setFly(value)
         if not value then
             if flyConn then
                 flyConn:Disconnect()
                 flyConn = nil
+            end
+            if flyMover then
+                pcall(function() flyMover:Destroy() end)
+                flyMover = nil
             end
             local hum = getHumanoid()
             if hum then pcall(function() hum.PlatformStand = false end) end
@@ -177,6 +182,15 @@ function Player.register(context)
             if not hum or not hrp or not cam or hum.Health <= 0 then return end
             hum.PlatformStand = true
 
+            -- PlatformStand อย่างเดียวไม่พอ เกมมี movement script ของตัวเองเขียนค่าทับ
+            -- ตัวจะค่อยๆ ร่วงทีละน้อย BodyVelocity ที่ MaxForce = ไม่จำกัด กดแรงโน้มถ่วงทิ้ง
+            if not flyMover or flyMover.Parent ~= hrp then
+                if flyMover then pcall(function() flyMover:Destroy() end) end
+                flyMover = Instance.new("BodyVelocity")
+                flyMover.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                flyMover.Parent = hrp
+            end
+
             local dir = Vector3.zero
             if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + cam.CFrame.LookVector end
             if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - cam.CFrame.LookVector end
@@ -185,21 +199,22 @@ function Player.register(context)
             if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.yAxis end
             if UserInputService:IsKeyDown(Enum.KeyCode.C) then dir = dir - Vector3.yAxis end
 
+            -- ล็อคหันหน้าเข้าหากล้องตลอดเวลา รวมตอนไม่กดปุ่ม ไม่หมุนตามทางเดิน
+            hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + cam.CFrame.LookVector)
+
             if dir.Magnitude == 0 then
-                hrp.AssemblyLinearVelocity = Vector3.zero
+                flyMover.Velocity = Vector3.zero
                 return
             end
 
             local unit = dir.Unit
-            -- ล็อคหันหน้าตามทางที่บิน ไม่ให้ตัวหมุนตามกล้องหรือตามความเร็ว
-            hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + unit)
 
             if flySpeed <= 300 then
-                hrp.AssemblyLinearVelocity = unit * flySpeed
+                flyMover.Velocity = unit * flySpeed
             else
                 -- เกิน ~300 แล้ว velocity ถูกเครือข่ายดึงตัวกลับ (ตัวละครรีเพลิกราว 20 ครั้ง/วิ
                 -- ไคลเอนต์วิ่งเร็วกว่านั้น = server ดันตัวกลับ ตาเลยเหมือนช้า) ต้องเลื่อนตำแหน่งเอง
-                hrp.AssemblyLinearVelocity = Vector3.zero
+                flyMover.Velocity = Vector3.zero
                 hrp.CFrame = hrp.CFrame + unit * (flySpeed * dt)
             end
         end)
@@ -217,7 +232,7 @@ function Player.register(context)
         speedSection:Slider({
             Title = "กระโดดสูง",
             Desc = "ตั้งค่าตรงๆ ตั้ง 0 = ใช้ค่าเกม (ปกติ 50)",
-            Value = {Min = 0, Max = 1000, Default = 0},
+            Value = {Min = 0, Max = 250, Default = 0},
             Step = 1,
             Callback = setJump,
         })
