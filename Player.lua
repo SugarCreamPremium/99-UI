@@ -1,4 +1,4 @@
--- Version 12.44
+-- Version 3.35
 local Player = {}
 
 -- กันดาเมจพื้นฐาน (Melee + Projectile + กับดัก/สิ่งแวดล้อม): กลบ remote รายงานความเสียหายจาก client -> server
@@ -79,6 +79,121 @@ function Player.register(context)
             Desc = "ไม่ให้ติดสถานะหนาวจัดในโซนหิมะ (ทำให้วิ่งได้)",
             Value = false,
             Callback = Player.setNoFreeze,
+        })
+    end
+
+    -- ============================================
+    -- ความเร็ว: เดิน / กระโดด / บิน
+    -- ============================================
+    -- เกมมี WalkspeedController คำนวณ WalkSpeed ใหม่ทุกครั้งที่มีอะไรเปลี่ยน
+    -- (UpdatePlayerSpeed: base 16 + รวมรายการ speed change ของคลาส/เขต/รถ)
+    -- ถ้าเขียน Humanoid.WalkSpeed ตรงๆ จะโดนเขียนทับทันที -> ต้องใช้ AddSpeedChange ของเกม
+    local UserInputService = game:GetService("UserInputService")
+    local RunService = game:GetService("RunService")
+    local WALK_ID = "SugarHubSpeed"
+
+    local function getHumanoid()
+        local char = player.Character
+        return char and char:FindFirstChildOfClass("Humanoid")
+    end
+
+    local function setWalkBonus(value)
+        local controller = Client and Client.WalkspeedController
+        if not controller then return end
+        pcall(function()
+            if value and value > 0 then
+                -- Group ของเกมใช้ "Class"/"Vehicle"/... ใช้ชื่อของเราเองกันชน
+                controller.AddSpeedChange(WALK_ID, "SugarHub", value, {Mode = "Walk"})
+            else
+                controller.RemoveSpeedChange(WALK_ID)
+            end
+        end)
+    end
+
+    -- เกมไม่ได้เขียน JumpPower/JumpHeight เอง (ดูแค่กับ NPC) ตั้งตรงๆได้เลย
+    local jumpValue = nil
+
+    local function setJump(value)
+        jumpValue = (value and value > 0) and value or nil
+        local hum = getHumanoid()
+        if hum and jumpValue then
+            pcall(function()
+                hum.UseJumpPower = true
+                hum.JumpPower = jumpValue
+            end)
+        end
+    end
+
+    -- ย้ายตอน respawn: ตัวละครใหม่ค่าจะกลับเป็นค่าเกม
+    player.CharacterAdded:Connect(function()
+        task.defer(function()
+            if jumpValue then setJump(jumpValue) end
+        end)
+    end)
+
+    -- เกมไม่มีระบบบินของผู้เล่น ต้องทำเอง
+    local flySpeed = 100
+    local flyConn = nil
+
+    local function setFly(value)
+        if not value then
+            if flyConn then
+                flyConn:Disconnect()
+                flyConn = nil
+            end
+            local hum = getHumanoid()
+            if hum then pcall(function() hum.PlatformStand = false end) end
+            return
+        end
+        if flyConn then return end
+        flyConn = RunService.RenderStepped:Connect(function()
+            local char = player.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local cam = workspace.CurrentCamera
+            if not hum or not hrp or not cam or hum.Health <= 0 then return end
+            hum.PlatformStand = true
+
+            local dir = Vector3.zero
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + cam.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - cam.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + cam.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - cam.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.yAxis end
+            if UserInputService:IsKeyDown(Enum.KeyCode.C) then dir = dir - Vector3.yAxis end
+
+            hrp.AssemblyLinearVelocity = dir.Magnitude > 0 and (dir.Unit * flySpeed) or Vector3.zero
+        end)
+    end
+
+    local speedSection = tab:Section({Title = "ความเร็ว", Opened = true})
+    if speedSection then
+        speedSection:Slider({
+            Title = "เพิ่มความเร็วเดิน",
+            Desc = "ปกติ 16 (บวกโบนัสคลาส/เขตที่เกมให้) ตั้ง 0 = ใช้ค่าเกม",
+            Value = {Min = 0, Max = 150, Default = 0},
+            Step = 1,
+            Callback = setWalkBonus,
+        })
+        speedSection:Slider({
+            Title = "กระโดดสูง",
+            Desc = "ปกติ 50 ตั้ง 0 = ใช้ค่าเกม",
+            Value = {Min = 0, Max = 300, Default = 0},
+            Step = 1,
+            Callback = setJump,
+        })
+        speedSection:Toggle({
+            Title = "บิน",
+            Desc = "W/S หน้า-หลัง, A/D ซ้าย-ขวา, Space ขึ้น, C ลง",
+            Value = false,
+            Callback = setFly,
+        })
+        speedSection:Slider({
+            Title = "ความเร็วบิน",
+            Desc = "studs ต่อวินาที",
+            Value = {Min = 10, Max = 500, Default = 100},
+            Step = 5,
+            Callback = function(value) flySpeed = value end,
         })
     end
 
