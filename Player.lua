@@ -1,4 +1,4 @@
--- Version 4.00
+-- Version 4.06
 local Player = {}
 
 -- กันดาเมจพื้นฐาน (Melee + Projectile + กับดัก/สิ่งแวดล้อม): กลบ remote รายงานความเสียหายจาก client -> server
@@ -98,9 +98,9 @@ function Player.register(context)
     -- ตั้งค่าตรงๆ ไม่ผ่าน WalkspeedController เพราะโจทย์คือ "ค่านี้เท่านี้เป๊ะ"
     -- แต่เกมเขียน WalkSpeed ใหม่ทุกครั้ง -> ฟัง GetPropertyChangedSignal แล้วเขียนทับกลับ
     -- (ตั้งค่าเดิมซ้ำ = Roblox ไม่ยิง signal กลับ -> ไม่เกิด recursion)
+    -- ไม่มีสถานะ "ปิด" แล้ว ต่ำสุดคือ 16/50 และเซลล์ว่าง = ยังไม่แตะ = เกมคุมเอง
     local walkValue = nil
     local walkConn = nil
-    local walkOriginal = nil
 
     local function applyWalk()
         local hum = getHumanoid()
@@ -110,65 +110,34 @@ function Player.register(context)
     end
 
     local function setWalk(value)
-        local hum = getHumanoid()
-        if hum and walkOriginal == nil then
-            walkOriginal = hum.WalkSpeed
-        end
-        walkValue = (value and value > 0) and value or nil
-        if walkValue then
-            if not walkConn and hum then
+        walkValue = value
+        if not walkValue then return end
+        if not walkConn then
+            local hum = getHumanoid()
+            if hum then
                 walkConn = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(applyWalk)
             end
-            applyWalk()
-        else
-            if walkConn then
-                walkConn:Disconnect()
-                walkConn = nil
-            end
-            -- ต้องคืนค่าเดิมด้วย ไม่งั้นตัวจะเดินด้วยค่าที่เราตั้งครั้งสุดท้ายตลอดไป
-            -- (ตั้งไว้ 1000 แล้วลากกลับ 0 = เดินเร็วจนคุมไม่ได้ เหมือนเดินไม่ได้เลย)
-            if hum and walkOriginal ~= nil and hum.WalkSpeed ~= walkOriginal then
-                pcall(function() hum.WalkSpeed = walkOriginal end)
-            end
         end
+        applyWalk()
     end
 
     -- เกมไม่ได้เขียน JumpPower/JumpHeight เอง (ดูแค่กับ NPC) ตั้งตรงๆได้เลย
     local jumpValue = nil
-    local jumpOriginal = nil
 
     local function setJump(value)
+        jumpValue = value
         local hum = getHumanoid()
-        if hum and jumpOriginal == nil then
-            jumpOriginal = {
-                UseJumpPower = hum.UseJumpPower,
-                JumpPower = hum.JumpPower,
-                JumpHeight = hum.JumpHeight,
-            }
-        end
-        jumpValue = (value and value > 0) and value or nil
-        if not hum then return end
-        if jumpValue then
+        if hum and jumpValue then
             pcall(function()
                 hum.UseJumpPower = true
                 hum.JumpPower = jumpValue
-            end)
-        elseif jumpOriginal then
-            -- คืนค่าเดิมของเกม ไม่งั้นจะกระโดดด้วยค่าที่เราตั้งครั้งสุดท้ายตลอดไป
-            pcall(function()
-                hum.UseJumpPower = jumpOriginal.UseJumpPower
-                hum.JumpPower = jumpOriginal.JumpPower
-                hum.JumpHeight = jumpOriginal.JumpHeight
             end)
         end
     end
 
     -- ย้ายตอน respawn: ตัวละครใหม่ค่าจะกลับเป็นค่าเกม
-    -- ล้างค่าที่จำไว้ด้วย ให้จับค่าเดิมของตัวละครใหม่แทน (ตัวเก่าถูกทิ้งไปแล้ว)
     player.CharacterAdded:Connect(function(char)
         task.defer(function()
-            walkOriginal = nil
-            jumpOriginal = nil
             if jumpValue then setJump(jumpValue) end
             if walkConn then
                 walkConn:Disconnect()
@@ -177,7 +146,6 @@ function Player.register(context)
             if walkValue then
                 local hum = char and char:FindFirstChildOfClass("Humanoid")
                 if hum then
-                    walkOriginal = hum.WalkSpeed
                     walkConn = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(applyWalk)
                 end
                 applyWalk()
@@ -188,7 +156,6 @@ function Player.register(context)
     -- เกมไม่มีระบบบินของผู้เล่น ต้องทำเอง
     local flySpeed = 100
     local flyConn = nil
-    local flyMover = nil
 
     local function setFly(value)
         if not value then
@@ -196,12 +163,11 @@ function Player.register(context)
                 flyConn:Disconnect()
                 flyConn = nil
             end
-            if flyMover then
-                pcall(function() flyMover:Destroy() end)
-                flyMover = nil
-            end
-            local hum = getHumanoid()
+            local char = player.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
             if hum then pcall(function() hum.PlatformStand = false end) end
+            if hrp then pcall(function() hrp.Anchored = false end) end
             return
         end
         if flyConn then return end
@@ -213,14 +179,9 @@ function Player.register(context)
             if not hum or not hrp or not cam or hum.Health <= 0 then return end
             hum.PlatformStand = true
 
-            -- PlatformStand อย่างเดียวไม่พอ เกมมี movement script ของตัวเองเขียนค่าทับ
-            -- ตัวจะค่อยๆ ร่วงทีละน้อย BodyVelocity ที่ MaxForce = ไม่จำกัด กดแรงโน้มถ่วงทิ้ง
-            if not flyMover or flyMover.Parent ~= hrp then
-                if flyMover then pcall(function() flyMover:Destroy() end) end
-                flyMover = Instance.new("BodyVelocity")
-                flyMover.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-                flyMover.Parent = hrp
-            end
+            -- ยึด HRP ทิ้งไว้ = ฟิสิกส์ไม่มาสู้ ไม่มีแรงโน้มถ่วง ไม่มี movement script ของเกมมาดึง
+            -- (เคยใช้ BodyVelocity MaxForce = ไม่จำกัด ผสมกับสคริปต์เดินของเกม -> ตัวสั่นลอยเลื่อนเอง)
+            hrp.Anchored = true
 
             local dir = Vector3.zero
             if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + cam.CFrame.LookVector end
@@ -230,24 +191,12 @@ function Player.register(context)
             if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.yAxis end
             if UserInputService:IsKeyDown(Enum.KeyCode.C) then dir = dir - Vector3.yAxis end
 
-            -- ล็อคหันหน้าเข้าหากล้องตลอดเวลา รวมตอนไม่กดปุ่ม ไม่หมุนตามทางเดิน
-            hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + cam.CFrame.LookVector)
-
-            if dir.Magnitude == 0 then
-                flyMover.Velocity = Vector3.zero
-                return
-            end
+            -- ไม่กดปุ่ม = ยืนนิ่งเป๊ะ ไม่ต้องแตะตำแหน่งใดๆ
+            if dir.Magnitude == 0 then return end
 
             local unit = dir.Unit
-
-            if flySpeed <= 300 then
-                flyMover.Velocity = unit * flySpeed
-            else
-                -- เกิน ~300 แล้ว velocity ถูกเครือข่ายดึงตัวกลับ (ตัวละครรีเพลิกราว 20 ครั้ง/วิ
-                -- ไคลเอนต์วิ่งเร็วกว่านั้น = server ดันตัวกลับ ตาเลยเหมือนช้า) ต้องเลื่อนตำแหน่งเอง
-                flyMover.Velocity = Vector3.zero
-                hrp.CFrame = hrp.CFrame + unit * (flySpeed * dt)
-            end
+            local to = hrp.Position + unit * (flySpeed * dt)
+            hrp.CFrame = CFrame.lookAt(to, to + cam.CFrame.LookVector)
         end)
     end
 
@@ -255,15 +204,15 @@ function Player.register(context)
     if speedSection then
         speedSection:Slider({
             Title = "ความเร็วเดิน",
-            Desc = "ตั้งค่าตรงๆ ตั้ง 0 = ใช้ค่าเกม (ปกติ 16 + โบนัสคลาส/เขต)",
-            Value = {Min = 0, Max = 300, Default = 0},
+            Desc = "ตั้งค่าตรงๆ ช้าสุด 16 (ค่าเกมปกติ)",
+            Value = {Min = 16, Max = 300, Default = 16},
             Step = 1,
             Callback = setWalk,
         })
         speedSection:Slider({
             Title = "กระโดดสูง",
-            Desc = "ตั้งค่าตรงๆ ตั้ง 0 = ใช้ค่าเกม (ปกติ 50)",
-            Value = {Min = 0, Max = 250, Default = 0},
+            Desc = "ตั้งค่าตรงๆ ต่ำสุด 50 (ค่าเกมปกติ)",
+            Value = {Min = 50, Max = 250, Default = 50},
             Step = 1,
             Callback = setJump,
         })
