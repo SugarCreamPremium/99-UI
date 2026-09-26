@@ -1,4 +1,4 @@
--- Version 4.06
+-- Version 4.15
 local Player = {}
 
 -- กันดาเมจพื้นฐาน (Melee + Projectile + กับดัก/สิ่งแวดล้อม): กลบ remote รายงานความเสียหายจาก client -> server
@@ -154,8 +154,43 @@ function Player.register(context)
     end)
 
     -- เกมไม่มีระบบบินของผู้เล่น ต้องทำเอง
+    -- ไม่ใช้ Anchored (ทะลุฉาก + Touched ไม่ทำงาน) และไม่เขียน CFrame ทุกเฟรม
+    -- เพราะการเขียน CFrame จะไปตี velocity ของฟิสิกส์ทิ้ง = ตัวสั่น
+    -- ใช้ constraint ของตัวเองแทน: LinearVelocity ขยับ + AlignOrientation หมุนหน้า
     local flySpeed = 100
     local flyConn = nil
+    local flyRig = nil
+
+    local function clearFlyRig()
+        if flyRig then
+            for _, obj in ipairs(flyRig) do pcall(function() obj:Destroy() end) end
+            flyRig = nil
+        end
+    end
+
+    local function buildFlyRig(hrp)
+        local pivot = Instance.new("Attachment")
+        pivot.Name = "FlyPivot"
+        pivot.Parent = hrp
+
+        -- MaxForce = ไม่จำกัด + Vector mode = บังคับความเร็วทุก physics step แรงโน้มถ่วงจึงไม่มีผล
+        local vel = Instance.new("LinearVelocity")
+        vel.MaxForce = math.huge
+        vel.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+        vel.RelativeTo = Enum.ActuatorRelativeTo.World
+        vel.Attachment0 = pivot
+        vel.Parent = hrp
+
+        -- หมุนหน้าเข้าหากล้องด้วยแรงบิด ไม่ต้องแตะ CFrame
+        local rot = Instance.new("AlignOrientation")
+        rot.Mode = Enum.OrientationAlignmentMode.OneAttachment
+        rot.MaxTorque = math.huge
+        rot.RigidityEnabled = false
+        rot.Attachment0 = pivot
+        rot.Parent = hrp
+
+        flyRig = {pivot, vel, rot}
+    end
 
     local function setFly(value)
         if not value then
@@ -163,25 +198,28 @@ function Player.register(context)
                 flyConn:Disconnect()
                 flyConn = nil
             end
-            local char = player.Character
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            if hum then pcall(function() hum.PlatformStand = false end) end
-            if hrp then pcall(function() hrp.Anchored = false end) end
+            clearFlyRig()
+            local hum = getHumanoid()
+            if hum then
+                pcall(function() hum.PlatformStand = false end)
+                pcall(function() hum.AutoRotate = true end)
+            end
             return
         end
         if flyConn then return end
-        flyConn = RunService.RenderStepped:Connect(function(dt)
+        flyConn = RunService.RenderStepped:Connect(function()
             local char = player.Character
             local hum = char and char:FindFirstChildOfClass("Humanoid")
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
             local cam = workspace.CurrentCamera
             if not hum or not hrp or not cam or hum.Health <= 0 then return end
             hum.PlatformStand = true
+            hum.AutoRotate = false  -- ปล่อยให้ AlignOrientation หมุนแทน สองตัวหมุนพร้อมกันจะสั่น
 
-            -- ยึด HRP ทิ้งไว้ = ฟิสิกส์ไม่มาสู้ ไม่มีแรงโน้มถ่วง ไม่มี movement script ของเกมมาดึง
-            -- (เคยใช้ BodyVelocity MaxForce = ไม่จำกัด ผสมกับสคริปต์เดินของเกม -> ตัวสั่นลอยเลื่อนเอง)
-            hrp.Anchored = true
+            if not flyRig or flyRig[1].Parent ~= hrp then
+                clearFlyRig()
+                buildFlyRig(hrp)
+            end
 
             local dir = Vector3.zero
             if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + cam.CFrame.LookVector end
@@ -191,12 +229,33 @@ function Player.register(context)
             if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.yAxis end
             if UserInputService:IsKeyDown(Enum.KeyCode.C) then dir = dir - Vector3.yAxis end
 
-            -- ไม่กดปุ่ม = ยืนนิ่งเป๊ะ ไม่ต้องแตะตำแหน่งใดๆ
-            if dir.Magnitude == 0 then return end
+            -- ไม่กดปุ่ม = ความเร็ว 0 = ยืนนิ่งกลางอากาศ แต่ยังหันหน้าตามกล้อง
+            flyRig[2].Velocity = dir.Magnitude > 0 and dir.Unit * flySpeed or Vector3.zero
+            flyRig[3].CFrame = CFrame.lookAt(Vector3.zero, cam.CFrame.LookVector)
+        end)
+    end
 
-            local unit = dir.Unit
-            local to = hrp.Position + unit * (flySpeed * dt)
-            hrp.CFrame = CFrame.lookAt(to, to + cam.CFrame.LookVector)
+    -- ============================================
+    -- Noclip: แยกจากบิน เพราะเกมนี้มีประตู/กำแพง/หลังคา ทะลุได้บางที่ ไม่ได้ทั้งหมด
+    -- ============================================
+    local noclipConn = nil
+
+    local function setNoclip(value)
+        if not value then
+            if noclipConn then
+                noclipConn:Disconnect()
+                noclipConn = nil
+            end
+            return
+        end
+        if noclipConn then return end
+        noclipConn = RunService.Stepped:Connect(function()
+            local char = player.Character
+            if not char then return end
+            -- วนทุกเฟรมเพราะเกม/สคริปต์อื่นจะเขียน CanCollide กลับเป็น true เอง
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then part.CanCollide = false end
+            end
         end)
     end
 
@@ -204,14 +263,12 @@ function Player.register(context)
     if speedSection then
         speedSection:Slider({
             Title = "ความเร็วเดิน",
-            Desc = "ตั้งค่าตรงๆ ช้าสุด 16 (ค่าเกมปกติ)",
             Value = {Min = 16, Max = 300, Default = 16},
             Step = 1,
             Callback = setWalk,
         })
         speedSection:Slider({
             Title = "กระโดดสูง",
-            Desc = "ตั้งค่าตรงๆ ต่ำสุด 50 (ค่าเกมปกติ)",
             Value = {Min = 50, Max = 250, Default = 50},
             Step = 1,
             Callback = setJump,
@@ -221,6 +278,12 @@ function Player.register(context)
             Desc = "W/S หน้า-หลัง, A/D ซ้าย-ขวา, Space ขึ้น, C ลง",
             Value = false,
             Callback = setFly,
+        })
+        speedSection:Toggle({
+            Title = "ทะลุกำแพง (Noclip)",
+            Desc = "ตัวทะลุผ่านสิ่งของได้",
+            Value = false,
+            Callback = setNoclip,
         })
         speedSection:Slider({
             Title = "ความเร็วบิน",
