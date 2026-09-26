@@ -1,4 +1,4 @@
--- Version 5.12
+-- Version 5.19
 local Player = {}
 
 -- กันดาเมจพื้นฐาน (Melee + Projectile + กับดัก/สิ่งแวดล้อม): กลบ remote รายงานความเสียหายจาก client -> server
@@ -154,15 +154,44 @@ function Player.register(context)
     end)
 
     -- เกมไม่มีระบบบินของผู้เล่น ต้องทำเอง
-    -- ไม่ใช้ Anchored (ทะลุฉาก + Touched ไม่ทำงาน + ถูกเกมเตะตอนชน)
-    -- และไม่ใช้ LinearVelocity/AlignOrientation เพราะแพ้สองทาง:
-    --   AntiFlingClient เขียน AssemblyLinearVelocity ทับทุกเฟรม (เกิน 300 ตัดเหลือ 100)
-    --   Humanoid ตอน PlatformStand = true ยึดตำแหน่งตัวเอง -> actuator แรงไม่พอขยับ
-    -- ที่ได้ผลคือย้าย CFrame เอง แล้วรายงานความเร็วให้ตรงกับที่ย้ายเสมอ
-    -- (รายงานไม่ตรง = ฟิสิกส์เห็นความเร็วไม่ตรงตำแหน่ง แล้วดึงกลับ = ตัวสั่น)
+    -- ห้ามเขียน hrp.CFrame เด็ดขาด นั่นคือการสั่งเทเลพอร์ ฝืนฟิสิกส์ตรงๆ
+    -- ผลคือทะลุกำแพง (ไม่มีการชนเลย) และตัวสั่นรัว (ฟิสิกส์ดันออก แล้วเราเขียนกลับที่เดิมทุกเฟรม)
+    -- ห้ามใช้ PlatformStand ด้วย เพราะมันไปยึดตัวละครไว้กับที่ = ลอยได้แต่ขยับไม่ได้
+    -- ใช้ constraint ที่ดึงด้วยแรงแทน: AlignPosition ขยับ, AlignOrientation หมุนหน้า
+    -- แรงไม่จำกัด = กำแพงหยุดไม่ได้ (ทะลุ) แรงจำกัด = กำแพงหยุดได้
     local flySpeed = 100
     local flyConn = nil
-    local flyPos = nil -- ตำแหน่งที่เราสั่งเอง เพราะที่ฟิสิกส์รายงานมันไม่ตรงเสมอ
+    local flyRig = nil
+    local flyTarget = nil
+
+    local function clearFlyRig()
+        if flyRig then
+            for _, o in ipairs(flyRig) do pcall(function() o:Destroy() end) end
+            flyRig = nil
+        end
+        flyTarget = nil
+    end
+
+    local function buildFlyRig(hrp)
+        local pivot = Instance.new("Attachment")
+        pivot.Name = "FlyPivot"
+        pivot.Parent = hrp
+
+        local pos = Instance.new("AlignPosition")
+        pos.Mode = Enum.PositionAlignmentMode.OneAttachment
+        pos.MaxPositionForce = 1e6
+        pos.Attachment0 = pivot
+        pos.Parent = hrp
+
+        local rot = Instance.new("AlignOrientation")
+        rot.Mode = Enum.OrientationAlignmentMode.OneAttachment
+        rot.MaxTorque = 1e6
+        rot.RigidityEnabled = false
+        rot.Attachment0 = pivot
+        rot.Parent = hrp
+
+        flyRig = {pivot, pos, rot}
+    end
 
     local function setFly(value)
         if not value then
@@ -170,9 +199,12 @@ function Player.register(context)
                 flyConn:Disconnect()
                 flyConn = nil
             end
-            flyPos = nil
+            clearFlyRig()
             local hum = getHumanoid()
-            if hum then pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end) end
+            if hum then
+                pcall(function() hum.AutoRotate = true end)
+                pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+            end
             return
         end
         if flyConn then return end
@@ -182,11 +214,14 @@ function Player.register(context)
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
             local cam = workspace.CurrentCamera
             if not hum or not hrp or not cam or hum.Health <= 0 then
-                flyPos = nil
+                clearFlyRig()
                 return
             end
-            hum.PlatformStand = true
-            hum.AutoRotate = false -- หันหน้าเราจัดเอง ถ้าให้เกมหมุนตามด้วยจะสั่น
+            hum.AutoRotate = false -- หันหน้าให้ constraint จัด ถ้าให้เกมหมุนตามด้วยจะสั่น
+            if not flyRig or flyRig[1].Parent ~= hrp then
+                clearFlyRig()
+                buildFlyRig(hrp)
+            end
 
             local dir = Vector3.zero
             if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + cam.CFrame.LookVector end
@@ -197,13 +232,16 @@ function Player.register(context)
             if UserInputService:IsKeyDown(Enum.KeyCode.C) then dir = dir - Vector3.yAxis end
 
             local unit = dir.Magnitude > 0 and dir.Unit or Vector3.zero
-            -- ห่างจากของจริงเกิน 5 = โดนเตะ/วาร์ป/ตาย ให้เริ่มนับใหม่จากตำแหน่งจริง
-            if not flyPos or (flyPos - hrp.Position).Magnitude > 5 then flyPos = hrp.Position end
-            flyPos = flyPos + unit * (flySpeed * dt)
+            local step = flySpeed * dt
+            -- เดินเป้าหมายไปข้างหน้าตามความเร็ว แต่ห้ามห่างจากตัวจริงเกิน 2 เฟรม
+            -- (ถ้าไม่จำกัด: ชนกำแพง เป้าหมายวิ่งไปข้างหลังกำแพง พอปล่อยปุ่มตัวกระโดดทะลุ)
+            if not flyTarget or (flyTarget - hrp.Position).Magnitude > step * 2 then
+                flyTarget = hrp.Position
+            end
+            flyTarget = flyTarget + unit * step
 
-            -- ไม่กดปุ่ม = ค้างกลางอากาศ แต่ยังหันหน้าตามกล้อง
-            hrp.CFrame = CFrame.lookAt(flyPos, flyPos + cam.CFrame.LookVector)
-            hrp.AssemblyLinearVelocity = unit * flySpeed
+            flyRig[2].Position = flyTarget
+            flyRig[3].CFrame = CFrame.lookAt(Vector3.zero, cam.CFrame.LookVector)
         end)
     end
 
