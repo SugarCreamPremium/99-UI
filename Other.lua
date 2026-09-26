@@ -1,4 +1,4 @@
--- Version 12.36
+-- Version 12.46
 local Other = {}
 
 function Other.register(context)
@@ -136,11 +136,12 @@ function Other.register(context)
     local promptRunning = false
     local promptConns = nil
     -- weak key: prompt ที่ถูกลบจะหลุดเอง ไม่ต้องคอยเช็คว่ายังมีอยู่ไหม
+    -- เก็บค่า = HoldDuration เดิมที่เกมตั้งไว้ (เก็บตอนเจอครั้งแรก) ไว้กู้ตอนปิด toggle
     local knownPrompts = setmetatable({}, {__mode = "k"})
 
     local function trackPrompt(p)
         if knownPrompts[p] then return end
-        knownPrompts[p] = true
+        knownPrompts[p] = p.HoldDuration
         pcall(function() p.HoldDuration = 0 end)
     end
 
@@ -180,6 +181,12 @@ function Other.register(context)
                 pcall(function() c:Disconnect() end)
             end
             promptConns = nil
+            -- กู้ HoldDuration เดิมของทุกตัวที่เราไปทับไว้ตอนเปิด
+            for p, orig in pairs(knownPrompts) do
+                if p.Parent then
+                    pcall(function() p.HoldDuration = orig end)
+                end
+            end
         end
     end
 
