@@ -1,4 +1,4 @@
--- Version 3.54
+-- Version 4.00
 local Player = {}
 
 -- กันดาเมจพื้นฐาน (Melee + Projectile + กับดัก/สิ่งแวดล้อม): กลบ remote รายงานความเสียหายจาก client -> server
@@ -100,6 +100,7 @@ function Player.register(context)
     -- (ตั้งค่าเดิมซ้ำ = Roblox ไม่ยิง signal กลับ -> ไม่เกิด recursion)
     local walkValue = nil
     local walkConn = nil
+    local walkOriginal = nil
 
     local function applyWalk()
         local hum = getHumanoid()
@@ -109,36 +110,65 @@ function Player.register(context)
     end
 
     local function setWalk(value)
-        walkValue = (value and value > 0) and value or nil
         local hum = getHumanoid()
+        if hum and walkOriginal == nil then
+            walkOriginal = hum.WalkSpeed
+        end
+        walkValue = (value and value > 0) and value or nil
         if walkValue then
             if not walkConn and hum then
                 walkConn = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(applyWalk)
             end
             applyWalk()
-        elseif walkConn then
-            walkConn:Disconnect()
-            walkConn = nil
+        else
+            if walkConn then
+                walkConn:Disconnect()
+                walkConn = nil
+            end
+            -- ต้องคืนค่าเดิมด้วย ไม่งั้นตัวจะเดินด้วยค่าที่เราตั้งครั้งสุดท้ายตลอดไป
+            -- (ตั้งไว้ 1000 แล้วลากกลับ 0 = เดินเร็วจนคุมไม่ได้ เหมือนเดินไม่ได้เลย)
+            if hum and walkOriginal ~= nil and hum.WalkSpeed ~= walkOriginal then
+                pcall(function() hum.WalkSpeed = walkOriginal end)
+            end
         end
     end
 
     -- เกมไม่ได้เขียน JumpPower/JumpHeight เอง (ดูแค่กับ NPC) ตั้งตรงๆได้เลย
     local jumpValue = nil
+    local jumpOriginal = nil
 
     local function setJump(value)
-        jumpValue = (value and value > 0) and value or nil
         local hum = getHumanoid()
-        if hum and jumpValue then
+        if hum and jumpOriginal == nil then
+            jumpOriginal = {
+                UseJumpPower = hum.UseJumpPower,
+                JumpPower = hum.JumpPower,
+                JumpHeight = hum.JumpHeight,
+            }
+        end
+        jumpValue = (value and value > 0) and value or nil
+        if not hum then return end
+        if jumpValue then
             pcall(function()
                 hum.UseJumpPower = true
                 hum.JumpPower = jumpValue
+            end)
+        elseif jumpOriginal then
+            -- คืนค่าเดิมของเกม ไม่งั้นจะกระโดดด้วยค่าที่เราตั้งครั้งสุดท้ายตลอดไป
+            pcall(function()
+                hum.UseJumpPower = jumpOriginal.UseJumpPower
+                hum.JumpPower = jumpOriginal.JumpPower
+                hum.JumpHeight = jumpOriginal.JumpHeight
             end)
         end
     end
 
     -- ย้ายตอน respawn: ตัวละครใหม่ค่าจะกลับเป็นค่าเกม
+    -- ล้างค่าที่จำไว้ด้วย ให้จับค่าเดิมของตัวละครใหม่แทน (ตัวเก่าถูกทิ้งไปแล้ว)
     player.CharacterAdded:Connect(function(char)
         task.defer(function()
+            walkOriginal = nil
+            jumpOriginal = nil
             if jumpValue then setJump(jumpValue) end
             if walkConn then
                 walkConn:Disconnect()
@@ -147,6 +177,7 @@ function Player.register(context)
             if walkValue then
                 local hum = char and char:FindFirstChildOfClass("Humanoid")
                 if hum then
+                    walkOriginal = hum.WalkSpeed
                     walkConn = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(applyWalk)
                 end
                 applyWalk()
