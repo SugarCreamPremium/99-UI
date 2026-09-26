@@ -1,4 +1,4 @@
--- Version 3.35
+-- Version 3.45
 local Player = {}
 
 -- กันดาเมจพื้นฐาน (Melee + Projectile + กับดัก/สิ่งแวดล้อม): กลบ remote รายงานความเสียหายจาก client -> server
@@ -85,29 +85,41 @@ function Player.register(context)
     -- ============================================
     -- ความเร็ว: เดิน / กระโดด / บิน
     -- ============================================
-    -- เกมมี WalkspeedController คำนวณ WalkSpeed ใหม่ทุกครั้งที่มีอะไรเปลี่ยน
-    -- (UpdatePlayerSpeed: base 16 + รวมรายการ speed change ของคลาส/เขต/รถ)
-    -- ถ้าเขียน Humanoid.WalkSpeed ตรงๆ จะโดนเขียนทับทันที -> ต้องใช้ AddSpeedChange ของเกม
+    -- เดิมใช้ WalkspeedController.AddSpeedChange (บวกเข้า base 16) แต่ตอนนี้ต้องการ
+    -- ตั้งค่าตรงๆ ตามตัวเลขที่เลื่อน จึงเปลี่ยนมาเขียน Humanoid.WalkSpeed เอง
     local UserInputService = game:GetService("UserInputService")
     local RunService = game:GetService("RunService")
-    local WALK_ID = "SugarHubSpeed"
 
     local function getHumanoid()
         local char = player.Character
         return char and char:FindFirstChildOfClass("Humanoid")
     end
 
-    local function setWalkBonus(value)
-        local controller = Client and Client.WalkspeedController
-        if not controller then return end
-        pcall(function()
-            if value and value > 0 then
-                -- Group ของเกมใช้ "Class"/"Vehicle"/... ใช้ชื่อของเราเองกันชน
-                controller.AddSpeedChange(WALK_ID, "SugarHub", value, {Mode = "Walk"})
-            else
-                controller.RemoveSpeedChange(WALK_ID)
+    -- ตั้งค่าตรงๆ ไม่ผ่าน WalkspeedController เพราะโจทย์คือ "ค่านี้เท่านี้เป๊ะ"
+    -- แต่เกมเขียน WalkSpeed ใหม่ทุกครั้ง -> ฟัง GetPropertyChangedSignal แล้วเขียนทับกลับ
+    -- (ตั้งค่าเดิมซ้ำ = Roblox ไม่ยิง signal กลับ -> ไม่เกิด recursion)
+    local walkValue = nil
+    local walkConn = nil
+
+    local function applyWalk()
+        local hum = getHumanoid()
+        if hum and walkValue and hum.WalkSpeed ~= walkValue then
+            pcall(function() hum.WalkSpeed = walkValue end)
+        end
+    end
+
+    local function setWalk(value)
+        walkValue = (value and value > 0) and value or nil
+        local hum = getHumanoid()
+        if walkValue then
+            if not walkConn and hum then
+                walkConn = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(applyWalk)
             end
-        end)
+            applyWalk()
+        elseif walkConn then
+            walkConn:Disconnect()
+            walkConn = nil
+        end
     end
 
     -- เกมไม่ได้เขียน JumpPower/JumpHeight เอง (ดูแค่กับ NPC) ตั้งตรงๆได้เลย
@@ -125,9 +137,20 @@ function Player.register(context)
     end
 
     -- ย้ายตอน respawn: ตัวละครใหม่ค่าจะกลับเป็นค่าเกม
-    player.CharacterAdded:Connect(function()
+    player.CharacterAdded:Connect(function(char)
         task.defer(function()
             if jumpValue then setJump(jumpValue) end
+            if walkConn then
+                walkConn:Disconnect()
+                walkConn = nil
+            end
+            if walkValue then
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    walkConn = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(applyWalk)
+                end
+                applyWalk()
+            end
         end)
     end)
 
@@ -146,7 +169,7 @@ function Player.register(context)
             return
         end
         if flyConn then return end
-        flyConn = RunService.RenderStepped:Connect(function()
+        flyConn = RunService.RenderStepped:Connect(function(dt)
             local char = player.Character
             local hum = char and char:FindFirstChildOfClass("Humanoid")
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -162,23 +185,39 @@ function Player.register(context)
             if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.yAxis end
             if UserInputService:IsKeyDown(Enum.KeyCode.C) then dir = dir - Vector3.yAxis end
 
-            hrp.AssemblyLinearVelocity = dir.Magnitude > 0 and (dir.Unit * flySpeed) or Vector3.zero
+            if dir.Magnitude == 0 then
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                return
+            end
+
+            local unit = dir.Unit
+            -- ล็อคหันหน้าตามทางที่บิน ไม่ให้ตัวหมุนตามกล้องหรือตามความเร็ว
+            hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + unit)
+
+            if flySpeed <= 300 then
+                hrp.AssemblyLinearVelocity = unit * flySpeed
+            else
+                -- เกิน ~300 แล้ว velocity ถูกเครือข่ายดึงตัวกลับ (ตัวละครรีเพลิกราว 20 ครั้ง/วิ
+                -- ไคลเอนต์วิ่งเร็วกว่านั้น = server ดันตัวกลับ ตาเลยเหมือนช้า) ต้องเลื่อนตำแหน่งเอง
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.CFrame = hrp.CFrame + unit * (flySpeed * dt)
+            end
         end)
     end
 
     local speedSection = tab:Section({Title = "ความเร็ว", Opened = true})
     if speedSection then
         speedSection:Slider({
-            Title = "เพิ่มความเร็วเดิน",
-            Desc = "ปกติ 16 (บวกโบนัสคลาส/เขตที่เกมให้) ตั้ง 0 = ใช้ค่าเกม",
-            Value = {Min = 0, Max = 150, Default = 0},
+            Title = "ความเร็วเดิน",
+            Desc = "ตั้งค่าตรงๆ ตั้ง 0 = ใช้ค่าเกม (ปกติ 16 + โบนัสคลาส/เขต)",
+            Value = {Min = 0, Max = 300, Default = 0},
             Step = 1,
-            Callback = setWalkBonus,
+            Callback = setWalk,
         })
         speedSection:Slider({
             Title = "กระโดดสูง",
-            Desc = "ปกติ 50 ตั้ง 0 = ใช้ค่าเกม",
-            Value = {Min = 0, Max = 300, Default = 0},
+            Desc = "ตั้งค่าตรงๆ ตั้ง 0 = ใช้ค่าเกม (ปกติ 50)",
+            Value = {Min = 0, Max = 1000, Default = 0},
             Step = 1,
             Callback = setJump,
         })
