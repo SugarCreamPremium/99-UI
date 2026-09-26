@@ -1,4 +1,4 @@
--- Version 5.23
+-- Version 5.32
 local Player = {}
 
 -- กันดาเมจพื้นฐาน (Melee + Projectile + กับดัก/สิ่งแวดล้อม): กลบ remote รายงานความเสียหายจาก client -> server
@@ -179,13 +179,15 @@ function Player.register(context)
 
         local pos = Instance.new("AlignPosition")
         pos.Mode = Enum.PositionAlignmentMode.OneAttachment
-        pos.MaxPositionForce_Magnitude = 1e6
+        pos.MaxForce = 1e6
+        pos.Responsiveness = 20
         pos.Attachment0 = pivot
         pos.Parent = hrp
 
         local rot = Instance.new("AlignOrientation")
         rot.Mode = Enum.OrientationAlignmentMode.OneAttachment
         rot.MaxTorque = 1e6
+        rot.Responsiveness = 20
         rot.RigidityEnabled = false
         rot.Attachment0 = pivot
         rot.Parent = hrp
