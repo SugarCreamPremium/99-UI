@@ -1,4 +1,4 @@
--- Version 5.44
+-- Version 5.49
 local Player = {}
 
 -- กันดาเมจพื้นฐาน (Melee + Projectile + กับดัก/สิ่งแวดล้อม): กลบ remote รายงานความเสียหายจาก client -> server
@@ -154,20 +154,19 @@ function Player.register(context)
     end)
 
     -- เกมไม่มีระบบบินของผู้เล่น ต้องทำเอง
-    -- ห้ามเขียน hrp.CFrame เด็ดขาด = การสั่งเทเลพอร์ ฝืนฟิสิกส์
+    -- ห้ามย้ายตำแหน่งด้วย CFrame = การสั่งเทเลพอร์ ฝืนฟิสิกส์
     -- ผลคือทะลุกำแพง (ไม่มีการชน) + ตัวสั่น (ฟิสิกส์ดันออก แล้วเราเขียนกลับที่เดิมทุกเฟรม)
+    -- เขียนแค่การหมุนที่ตำแหน่งเดิมก็ปลอดภัย เพราะไม่ขยับตำแหน่งเลย
     -- ห้ามใช้ PlatformStand = มันยึดตัวละครไว้กับที่ ลอยได้แต่ขยับไม่ได้
-    -- ใช้ LinearVelocity (บังคับความเร็ว) + AlignOrientation (บังคับการหมุน) แทน
+    -- ใช้ LinearVelocity บังคับความเร็ว (การเคลื่อนที่) แล้วเขียนการหมุนตรงๆ (การหันหน้า)
     -- ชื่อ property สำคัญ: LinearVelocity ใช้ "VectorVelocity" ไม่ใช่ "Velocity"
     -- MaxForce ไม่จำกัด = กำแพงหยุดไม่ได้ จำกัด = กำแพงหยุดได้
     local flySpeed = 100
     local flyConn = nil
     local flyVel = nil
-    local flyRot = nil
 
     local function clearFly()
         if flyVel then pcall(function() flyVel:Destroy() end) flyVel = nil end
-        if flyRot then pcall(function() flyRot:Destroy() end) flyRot = nil end
     end
 
     local function buildFly(hrp)
@@ -180,15 +179,6 @@ function Player.register(context)
         flyVel.RelativeTo = Enum.ActuatorRelativeTo.World
         flyVel.Attachment0 = anchor
         flyVel.Parent = hrp
-
-        -- ล็อคหันหน้าไปทางเดียวกับกล้อง ด้วยแรงบิด ไม่ต้องแตะ CFrame
-        flyRot = Instance.new("AlignOrientation")
-        flyRot.Mode = Enum.OrientationAlignmentMode.OneAttachment
-        flyRot.MaxTorque = 1e6
-        flyRot.Responsiveness = 20
-        flyRot.RigidityEnabled = false
-        flyRot.Attachment0 = anchor
-        flyRot.Parent = hrp
     end
 
     local function setFly(value)
@@ -215,7 +205,7 @@ function Player.register(context)
                 clearFly()
                 return
             end
-            hum.AutoRotate = false -- หันหน้าให้ constraint จัด ถ้าให้เกมหมุนตามด้วยจะสั่น
+            hum.AutoRotate = false -- เราจัดการหันหน้าเอง ถ้าให้เกมหมุนตามด้วยจะสั่น
             if not flyVel or flyVel.Parent ~= hrp then
                 clearFly()
                 buildFly(hrp)
@@ -229,9 +219,13 @@ function Player.register(context)
             if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.yAxis end
             if UserInputService:IsKeyDown(Enum.KeyCode.C) then dir = dir - Vector3.yAxis end
 
+            -- เขียนแค่การหมุน ตำแหน่งเท่าเดิม = ไม่ขยับ ไม่ชน ไม่สั่น แต่หันหน้าได้ตามใจ
+            -- ต้องเขียนก่อนตั้งความเร็ว เพราะการเขียน CFrame จะตีความเร็วทิ้ง
+            local pos = hrp.Position
+            hrp.CFrame = CFrame.new(pos, pos + cam.CFrame.LookVector)
+
             -- ไม่กดปุ่ม = ความเร็ว 0 = ค้างกลางอากาศ แต่ยังหันหน้าตามกล้อง
             flyVel.VectorVelocity = dir.Magnitude > 0 and dir.Unit * flySpeed or Vector3.zero
-            flyRot.CFrame = CFrame.lookAt(Vector3.zero, cam.CFrame.LookVector)
         end)
     end
 
