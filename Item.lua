@@ -1,4 +1,4 @@
--- Version 7.49
+-- Version 12.32
 local Item = {}
 
 function Item.register(context)
@@ -306,6 +306,12 @@ function Item.register(context)
         return nil
     end
 
+    -- จุดปล่อยของบนกองไฟ (ใช้ร่วมกันทั้ง "ดึงสิ่งของ" และช่องดึงอัตโนมัติ)
+    local function getFireDropPos()
+        local firePos = getFirePos()
+        return firePos and (firePos + Vector3.new(0, 15, 0)) or nil
+    end
+
     local function openAllChests()
         if openingChests then return end
 
@@ -462,8 +468,8 @@ function Item.register(context)
 
     getPullTargetPosition = function()
         if pullTarget == "fire" then
-            local firePos = getFirePos()
-            if firePos then return firePos + Vector3.new(0, 15, 0) end
+            local pos = getFireDropPos()
+            if pos then return pos end
         elseif pullTarget == "craft" then
             local pos = getCraftDropPos()
             if pos then return pos end
@@ -593,8 +599,8 @@ function Item.register(context)
 
     local function getAutoTargetPos(key)
         if key == "fire" then
-            local p = getFirePos()
-            return p and p + Vector3.new(0, 5, 0)
+            -- จุดเดียวกับ "ดึงสิ่งของ > จุดดึงของ > บนกองไฟ"
+            return getFireDropPos()
         elseif key == "craft" then
             -- จุดเดียวกับ "ดึงสิ่งของ > จุดดึงของ > โต๊ะคราฟ"
             return getCraftDropPos()
