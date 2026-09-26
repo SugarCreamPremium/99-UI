@@ -1,4 +1,4 @@
--- Version 12.32
+-- Version 12.36
 local Other = {}
 
 function Other.register(context)
@@ -128,28 +128,36 @@ function Other.register(context)
     -- ============================================
     -- เกมตั้ง HoldDuration ไว้ก่อน Parent (ดู ChristmasDecorClient/BaseDefenderClass)
     -- แต่ Scavenger (4.4 วิ) กับ Explorer เขียนค่าทับทีหลัง -> ต้องดันซ้ำเป็นระยะ
+    --
+    -- เคยทำลูป workspace:GetDescendants() ทุก 0.5 วิ -> FPS ตกหนัก
+    -- เพราะแมพมีหลักพัน instance และ GetDescendants สร้างตารางใหม่ทั้งหมดทุกครั้ง
+    -- แก้เป็นจำเฉพาะ prompt ที่เจอ แล้ววนเฉพาะตัวเหล่านั้น (สองร้อยกว่าตัว ไม่ใช่ทั้งแมพ)
     local instantPrompts = false
     local promptRunning = false
     local promptConns = nil
+    -- weak key: prompt ที่ถูกลบจะหลุดเอง ไม่ต้องคอยเช็คว่ายังมีอยู่ไหม
+    local knownPrompts = setmetatable({}, {__mode = "k"})
 
-    local function zeroHold()
-        for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("ProximityPrompt") and obj.HoldDuration ~= 0 then
-                pcall(function() obj.HoldDuration = 0 end)
-            end
-        end
+    local function trackPrompt(p)
+        if knownPrompts[p] then return end
+        knownPrompts[p] = true
+        pcall(function() p.HoldDuration = 0 end)
     end
 
     local function setInstantPrompts(value)
         instantPrompts = value
         if value then
             if not promptConns then
-                -- จับ prompt ที่เพิ่งโผล่ (เกมสร้างตอนเล่นจริง ไม่ได้อยู่ตอนโหลด)
+                -- สแกนรอบแรกครั้งเดียวตอนเปิด (เกมสร้าง prompt ตอนเล่นจริง ไม่ได้อยู่ตอนโหลด)
+                pcall(function()
+                    for _, obj in ipairs(workspace:GetDescendants()) do
+                        if obj:IsA("ProximityPrompt") then trackPrompt(obj) end
+                    end
+                end)
+                -- จับตัวที่โผล่มาใหม่หลังจากนี้
                 promptConns = {
                     workspace.DescendantAdded:Connect(function(obj)
-                        if obj:IsA("ProximityPrompt") then
-                            pcall(function() obj.HoldDuration = 0 end)
-                        end
+                        if obj:IsA("ProximityPrompt") then trackPrompt(obj) end
                     end),
                 }
             end
@@ -157,7 +165,11 @@ function Other.register(context)
                 promptRunning = true
                 task.spawn(function()
                     while instantPrompts do
-                        zeroHold()
+                        for p in pairs(knownPrompts) do
+                            if p.Parent and p.HoldDuration ~= 0 then
+                                pcall(function() p.HoldDuration = 0 end)
+                            end
+                        end
                         task.wait(0.5)
                     end
                     promptRunning = false
