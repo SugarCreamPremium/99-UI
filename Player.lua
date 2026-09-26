@@ -1,4 +1,4 @@
--- Version 4.15
+-- Version 4.49
 local Player = {}
 
 -- กันดาเมจพื้นฐาน (Melee + Projectile + กับดัก/สิ่งแวดล้อม): กลบ remote รายงานความเสียหายจาก client -> server
@@ -154,43 +154,14 @@ function Player.register(context)
     end)
 
     -- เกมไม่มีระบบบินของผู้เล่น ต้องทำเอง
-    -- ไม่ใช้ Anchored (ทะลุฉาก + Touched ไม่ทำงาน) และไม่เขียน CFrame ทุกเฟรม
-    -- เพราะการเขียน CFrame จะไปตี velocity ของฟิสิกส์ทิ้ง = ตัวสั่น
-    -- ใช้ constraint ของตัวเองแทน: LinearVelocity ขยับ + AlignOrientation หมุนหน้า
+    -- ไม่ใช้ Anchored (ทะลุฉาก + Touched ไม่ทำงาน) และไม่ใช้ LinearVelocity
+    -- เพราะ AntiFlingClient เขียน AssemblyLinearVelocity ทับทุกเฟรม และ Humanoid
+    -- ตอน PlatformStand = true ก็ยึดตำแหน่งตัวเองอยู่ -> actuator ของเราแพ้ทั้งสองทาง
+    -- วิธีที่ได้ผลคือย้าย CFrame เอง แล้วรายงานความเร็วให้ตรงกับที่ย้ายเสมอ
+    -- (รายงานไม่ตรง = ฟิสิกส์ดึงตัวกลับจุดเดิม = ตัวสั่น คือบั๊กเดิมตอนใช้ BodyVelocity)
     local flySpeed = 100
     local flyConn = nil
-    local flyRig = nil
-
-    local function clearFlyRig()
-        if flyRig then
-            for _, obj in ipairs(flyRig) do pcall(function() obj:Destroy() end) end
-            flyRig = nil
-        end
-    end
-
-    local function buildFlyRig(hrp)
-        local pivot = Instance.new("Attachment")
-        pivot.Name = "FlyPivot"
-        pivot.Parent = hrp
-
-        -- MaxForce = ไม่จำกัด + Vector mode = บังคับความเร็วทุก physics step แรงโน้มถ่วงจึงไม่มีผล
-        local vel = Instance.new("LinearVelocity")
-        vel.MaxForce = math.huge
-        vel.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
-        vel.RelativeTo = Enum.ActuatorRelativeTo.World
-        vel.Attachment0 = pivot
-        vel.Parent = hrp
-
-        -- หมุนหน้าเข้าหากล้องด้วยแรงบิด ไม่ต้องแตะ CFrame
-        local rot = Instance.new("AlignOrientation")
-        rot.Mode = Enum.OrientationAlignmentMode.OneAttachment
-        rot.MaxTorque = math.huge
-        rot.RigidityEnabled = false
-        rot.Attachment0 = pivot
-        rot.Parent = hrp
-
-        flyRig = {pivot, vel, rot}
-    end
+    local flyPos = nil -- ตำแหน่งที่เราสั่งเอง เพราะที่ฟิสิกส์รายงานมันไม่ตรงเสมอ
 
     local function setFly(value)
         if not value then
@@ -198,7 +169,7 @@ function Player.register(context)
                 flyConn:Disconnect()
                 flyConn = nil
             end
-            clearFlyRig()
+            flyPos = nil
             local hum = getHumanoid()
             if hum then
                 pcall(function() hum.PlatformStand = false end)
@@ -207,19 +178,17 @@ function Player.register(context)
             return
         end
         if flyConn then return end
-        flyConn = RunService.RenderStepped:Connect(function()
+        flyConn = RunService.RenderStepped:Connect(function(dt)
             local char = player.Character
             local hum = char and char:FindFirstChildOfClass("Humanoid")
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
             local cam = workspace.CurrentCamera
-            if not hum or not hrp or not cam or hum.Health <= 0 then return end
-            hum.PlatformStand = true
-            hum.AutoRotate = false  -- ปล่อยให้ AlignOrientation หมุนแทน สองตัวหมุนพร้อมกันจะสั่น
-
-            if not flyRig or flyRig[1].Parent ~= hrp then
-                clearFlyRig()
-                buildFlyRig(hrp)
+            if not hum or not hrp or not cam or hum.Health <= 0 then
+                flyPos = nil
+                return
             end
+            hum.PlatformStand = true
+            hum.AutoRotate = false -- หันหน้าเราจัดเอง ถ้าให้เกมหมุนตามด้วยจะสั่น
 
             local dir = Vector3.zero
             if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + cam.CFrame.LookVector end
@@ -229,9 +198,14 @@ function Player.register(context)
             if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.yAxis end
             if UserInputService:IsKeyDown(Enum.KeyCode.C) then dir = dir - Vector3.yAxis end
 
-            -- ไม่กดปุ่ม = ความเร็ว 0 = ยืนนิ่งกลางอากาศ แต่ยังหันหน้าตามกล้อง
-            flyRig[2].Velocity = dir.Magnitude > 0 and dir.Unit * flySpeed or Vector3.zero
-            flyRig[3].CFrame = CFrame.lookAt(Vector3.zero, cam.CFrame.LookVector)
+            local unit = dir.Magnitude > 0 and dir.Unit or Vector3.zero
+            -- ห่างจากของจริงเกิน 5 = โดนเตะ/วาร์ป/ตาย ให้เริ่มนับใหม่จากตำแหน่งจริง
+            if not flyPos or (flyPos - hrp.Position).Magnitude > 5 then flyPos = hrp.Position end
+            flyPos = flyPos + unit * (flySpeed * dt)
+
+            -- ไม่กดปุ่ม = ยืนนิ่งกลางอากาศ แต่ยังหันหน้าตามกล้อง
+            hrp.CFrame = CFrame.lookAt(flyPos, flyPos + cam.CFrame.LookVector)
+            hrp.AssemblyLinearVelocity = unit * flySpeed
         end)
     end
 
@@ -287,7 +261,7 @@ function Player.register(context)
         })
         speedSection:Slider({
             Title = "ความเร็วบิน",
-            Desc = "studs ต่อวินาที",
+            Desc = "studs ต่อวินาที,
             Value = {Min = 10, Max = 500, Default = 100},
             Step = 5,
             Callback = function(value) flySpeed = value end,
