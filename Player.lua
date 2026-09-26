@@ -1,4 +1,4 @@
--- Version 6.00
+-- Version 6.04
 local Player = {}
 
 -- กันดาเมจพื้นฐาน (Melee + Projectile + กับดัก/สิ่งแวดล้อม): กลบ remote รายงานความเสียหายจาก client -> server
@@ -263,7 +263,7 @@ function Player.register(context)
         end)
     end
 
-    local speedSection = tab:Section({Title = "ความเร็ว", Opened = true})
+    local speedSection = tab:Section({Title = "ปรับตัวละคร", Opened = true})
     if speedSection then
         speedSection:Slider({
             Title = "ความเร็วเดิน",
