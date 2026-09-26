@@ -1,4 +1,4 @@
--- Version 12.46
+-- Version 2.53
 local Other = {}
 
 function Other.register(context)
@@ -113,6 +113,150 @@ function Other.register(context)
         end
     end
 
+    -- ============================================
+    -- ภาพและแสง: ลดกราฟฟิก (ย้ายมาจาก FlatFPS.lua)
+    -- แยกจาก "ลบหมอก" อีกตัว ตัวนี้ไม่ไปแตะ FogStart/FogEnd เลย จึงเปิด-ปิดกันได้อิสระ
+    -- ============================================
+    -- จำค่าเดิมไว้ก่อนทุกครั้งที่แก้ ปิด toggle แล้วกู้คืนได้
+    -- ไม่มี Destroy ยกเว้น SurfaceAppearance (ตัวเดียวที่กู้ไม่ได้)
+    local gfxSaved = {}
+
+    local function gfxSet(obj, prop, value)
+        local props = gfxSaved[obj]
+        if not props then
+            props = {}
+            gfxSaved[obj] = props
+        end
+        if props[prop] == nil then
+            -- ต้องอ่านใน pcall: TextureID/MaterialVariant มีแค่บางคลาส (MeshPart, WedgePart)
+            -- Part ธรรมดาไม่มี -> อ่านโดยตรงจะ error หลุดออกมาถึงผู้เรียก
+            local ok, old = pcall(function() return obj[prop] end)
+            if not ok then return end
+            props[prop] = old
+        end
+        pcall(function() obj[prop] = value end)
+    end
+
+    -- Material กลุ่มนี้มีลายสลักอยู่ในตัว Roblox เอง แม้ไม่มี Decal/Texture ก็ยังเห็นลาย
+    local TEXTURED = {
+        Wood = true, WoodPlanks = true, Marble = true, Slate = true, Concrete = true,
+        Granite = true, Brick = true, Pebble = true, Cobblestone = true, Rock = true,
+        Sand = true, Fabric = true, Ground = true, Asphalt = true, Salt = true,
+        Mud = true, Carpet = true, CeramicTiles = true, ClayRoofTiles = true,
+        RoofShingles = true, Leather = true, Plaster = true, DiamondPlate = true,
+        CorrodedMetal = true, LeafyGrass = true, Pavement = true, CrackedLava = true,
+        Aisle = true, Glitch = true,
+    }
+
+    local VFX_CLASSES = {
+        ParticleEmitter = true, Smoke = true, Fire = true,
+        Sparkles = true, Beam = true, Trail = true,
+    }
+
+    local function isPostFX(c)
+        return c:IsA("Atmosphere") or c:IsA("BloomEffect") or c:IsA("DepthOfFieldEffect")
+            or c:IsA("SunRaysEffect") or c:IsA("ColorCorrectionEffect")
+            or c:IsA("CloudsTexture")
+    end
+
+    -- ข้ามตัวละครทุกคน (เรา + เพื่อน) เหลือแต่ฉากกับของ
+    local function isCharacter(o)
+        local p = o
+        while p and p ~= workspace do
+            if p:IsA("Model") and p:FindFirstChildOfClass("Humanoid") then return true end
+            p = p.Parent
+        end
+        return false
+    end
+
+    local function stripGraphics(o)
+        if isCharacter(o) then return end
+        local cn = o.ClassName
+
+        if cn == "Decal" or cn == "Texture" then
+            -- ซ่อนภาพที่ติดอยู่บนตัว เหลือสีของชิ้นส่วนล้วน
+            gfxSet(o, "Transparency", 1)
+        elseif cn == "SurfaceAppearance" then
+            -- ลบแล้ว MeshPart จะวาดด้วย Color/TextureID แทน (ตัว mesh ยังทำงานปกติ)
+            -- แต่กู้คืนไม่ได้
+            pcall(function() o:Destroy() end)
+        elseif o:IsA("SpecialMesh") then
+            gfxSet(o, "TextureId", "")
+        elseif o:IsA("BasePart") then
+            gfxSet(o, "TextureID", "")
+            gfxSet(o, "MaterialVariant", "")
+            if TEXTURED[o.Material] then
+                gfxSet(o, "Material", Enum.Material.Plastic)
+            end
+        elseif o:IsA("Sky") then
+            gfxSet(o, "SkyboxBk", "")
+            gfxSet(o, "SkyboxDn", "")
+            gfxSet(o, "SkyboxFt", "")
+            gfxSet(o, "SkyboxLf", "")
+            gfxSet(o, "SkyboxRt", "")
+            gfxSet(o, "SkyboxUp", "")
+            gfxSet(o, "StarCount", 0)
+        end
+
+        if VFX_CLASSES[cn] then
+            -- ปิดแทน Destroy: ได้ผลเดียวกันแต่กู้คืนได้
+            gfxSet(o, "Enabled", false)
+        end
+    end
+
+    local function applyLightingFloor()
+        gfxSet(Lighting, "GlobalShadows", false)
+        gfxSet(Lighting, "Brightness", 2)
+        gfxSet(Lighting, "OutdoorAmbient", Color3.new(1, 1, 1))
+        gfxSet(Lighting, "Ambient", Color3.new(1, 1, 1))
+        gfxSet(Lighting, "EnvironmentDiffuseScale", 0)
+        gfxSet(Lighting, "EnvironmentSpecularScale", 0.15)
+        -- ชื่อเดิมคือ Forward แต่ Roblox เปลี่ยนเป็น Future แล้ว
+        -- เอาไว้ใน pcall เพราะ Enum ถูกประเมินก่อนเข้า gfxSet
+        pcall(function() gfxSet(Lighting, "Technology", Enum.Technology.Future) end)
+    end
+
+    local gfxConns = nil
+
+    local function setFlatGraphics(value)
+        if value then
+            applyLightingFloor()
+            -- สแกนครั้งเดียวตอนเปิด (แมพมีหลักพัน instance ห้ามวน GetDescendants เป็นลูป)
+            pcall(function()
+                for _, o in ipairs(workspace:GetDescendants()) do stripGraphics(o) end
+            end)
+            pcall(function()
+                for _, o in ipairs(Lighting:GetChildren()) do
+                    if isPostFX(o) then gfxSet(o, "Enabled", false) end
+                end
+            end)
+            -- ตัวที่โผล่มาทีหลังระหว่างเล่น
+            if not gfxConns then
+                gfxConns = {
+                    workspace.DescendantAdded:Connect(stripGraphics),
+                    Lighting.ChildAdded:Connect(function(c)
+                        if isPostFX(c) then gfxSet(c, "Enabled", false) end
+                    end),
+                }
+            end
+        else
+            if gfxConns then
+                for _, c in ipairs(gfxConns) do
+                    pcall(function() c:Disconnect() end)
+                end
+                gfxConns = nil
+            end
+            for o, props in pairs(gfxSaved) do
+                if o.Parent then
+                    for prop, v in pairs(props) do
+                        pcall(function() o[prop] = v end)
+                    end
+                end
+            end
+            gfxSaved = {}
+        end
+    end
+
     local visSection = tab:Section({Title = "ภาพและแสง", Opened = true})
     if visSection then
         visSection:Toggle({
@@ -120,6 +264,12 @@ function Other.register(context)
             Desc = "ลบหมอกออกหมด เพื่อจะได้มองเห็นได้ชัด (ปิดแล้วจะมีหมอกเหมือนเดิม)",
             Value = false,
             Callback = setNoFog,
+        })
+        visSection:Toggle({
+            Title = "ลดกราฟฟิก",
+            Desc = "ลดรายละเอียดสิ่งของภายในเกม (ปิดแล้วจะกลับมาเหมือนเดิม)",
+            Value = false,
+            Callback = setFlatGraphics,
         })
     end
 
