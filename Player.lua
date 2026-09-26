@@ -1,4 +1,4 @@
--- Version 4.49
+-- Version 5.01
 local Player = {}
 
 -- กันดาเมจพื้นฐาน (Melee + Projectile + กับดัก/สิ่งแวดล้อม): กลบ remote รายงานความเสียหายจาก client -> server
@@ -261,7 +261,7 @@ function Player.register(context)
         })
         speedSection:Slider({
             Title = "ความเร็วบิน",
-            Desc = "studs ต่อวินาที,
+            Desc = "studs ต่อวินาที",
             Value = {Min = 10, Max = 500, Default = 100},
             Step = 5,
             Callback = function(value) flySpeed = value end,
