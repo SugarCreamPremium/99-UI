@@ -1,4 +1,4 @@
--- Version 12.32
+-- Version 5.06
 local Item = {}
 
 function Item.register(context)
@@ -15,6 +15,90 @@ function Item.register(context)
     local selectedItems = {}
     local isPulling = false
     local warpedItems = setmetatable({}, {__mode = "k"})
+
+    -- ===== บันทึก/โหลดการตั้งค่า (เก็บในโฟลเดอร์ workspace ของ executor) =====
+    -- เซฟ: ดึงสิ่งของ (ของที่เลือก/จำนวนชิ้น/จุดดึงของ) + ช่องอัตโนมัติ 1-4 (ของที่จะดึง/จุดปล่อย)
+    -- ไม่เซฟสถานะสวิตช์ "เปิดดึงของ" (รอบหน้าต้องเปิดเองเสมอ กันดึงของโดยไม่ตั้งใจ)
+    local HttpService = game:GetService("HttpService")
+    -- แยกไฟล์ตาม Username ของแต่ละบัญชี (กันหลายบัญชีบน workspace เดียวกันเขียนทับกัน)
+    local safeName = tostring(player and player.Name or "Unknown"):gsub("[^%w_%-]", "_")
+    local SETTINGS_FILE = "ItemPullSettings_" .. safeName .. ".json"
+    local PLACEHOLDER_NAME = "(ยังไม่มีไอเทม)"
+    -- ระหว่างสร้าง UI ห้ามให้ Callback ทับค่าที่โหลดมา (ปลดล็อกท้ายฟังก์ชัน)
+    local restoring = true
+    local saveQueued = false
+    local saveSettings -- forward declaration: ฟังก์ชันจริงประกาศหลัง autoConfig
+
+    local function loadSettings()
+        if type(isfile) ~= "function" or type(readfile) ~= "function" then return {} end
+        local ok, data = pcall(function()
+            if not isfile(SETTINGS_FILE) then return nil end
+            return HttpService:JSONDecode(readfile(SETTINGS_FILE))
+        end)
+        if ok and type(data) == "table" then return data end
+        return {}
+    end
+
+    -- set {name=true} -> list เรียงชื่อ
+    local function setToList(set)
+        local out = {}
+        for name in pairs(set) do
+            if name ~= PLACEHOLDER_NAME then table.insert(out, name) end
+        end
+        table.sort(out)
+        return out
+    end
+
+    -- list จากไฟล์ -> set (กรองเฉพาะ string, ถ้ามี allowed จะเก็บเฉพาะชื่อที่อยู่ใน allowed)
+    local function listToSet(list, allowed)
+        local out = {}
+        if type(list) == "table" then
+            for _, name in ipairs(list) do
+                if type(name) == "string" and (not allowed or allowed[name]) then
+                    out[name] = true
+                end
+            end
+        end
+        return out
+    end
+
+    -- เช็คว่า key ที่โหลดมายังมีอยู่ในตัวเลือกจริง (กันไฟล์เก่า/ไฟล์แก้มือ)
+    local function validKey(targets, key)
+        for _, t in ipairs(targets) do
+            if t.Key == key then return key end
+        end
+        return nil
+    end
+
+    local function labelOfKey(targets, key)
+        for _, t in ipairs(targets) do
+            if t.Key == key then return t.Label end
+        end
+        return targets[1].Label
+    end
+
+    local saved = loadSettings()
+    local savedManual = type(saved.manual) == "table" and saved.manual or {}
+    selectedItems = listToSet(savedManual.items)
+    if type(savedManual.amount) == "number" then
+        maxAmount = math.clamp(math.floor(savedManual.amount), 1, 100)
+    end
+
+    -- รวมชื่อของที่เลือกไว้ (จากไฟล์) เข้ากับรายการที่มีในแมพตอนนี้
+    -- ไม่งั้นของที่เซฟไว้แต่ยังไม่โผล่ในแมพ จะหายจากช่องเลือก
+    local function withSelected(names)
+        local seen, out = {}, {}
+        for _, name in ipairs(names) do
+            seen[name] = true
+            table.insert(out, name)
+        end
+        for name in pairs(selectedItems) do
+            if not seen[name] then table.insert(out, name) end
+        end
+        table.sort(out)
+        if #out == 0 then out = {PLACEHOLDER_NAME} end
+        return out
+    end
 
     local function getHead()
         local character = player.Character
@@ -412,8 +496,7 @@ function Item.register(context)
     end
 
     local function refreshItems()
-        local names = getAvailableItemNames()
-        if #names == 0 then names = {"(ยังไม่มีไอเทม)"} end
+        local names = withSelected(getAvailableItemNames())
         if itemDropdown then
             -- WindUI Select(av) = ตั้ง ap.Value = av (ทับของเดิมทุกครั้ง) -> ต้องส่งตารางชื่อทั้งหมดครั้งเดียว
             -- ถ้าวน loop เรียก Select(name) ทีละชื่อ จะเหลือแค่ชื่อสุดท้าย
@@ -426,17 +509,17 @@ function Item.register(context)
         end
     end
 
-    -- เริ่มต้นไม่ต้องเลือกอะไร ให้ผู้ใช้เลือกเอง (ไม่เลือกแล้วกดดึง = ไม่เกิดอะไร)
-    local initialNames = getAvailableItemNames()
-    if #initialNames == 0 then initialNames = {"(ยังไม่มีไอเทม)"} end
+    -- เริ่มต้นใช้ค่าที่เซฟไว้ (ถ้าไม่มีไฟล์ = ไม่เลือกอะไร ให้ผู้ใช้เลือกเอง)
+    local initialNames = withSelected(getAvailableItemNames())
     itemDropdown = section:Dropdown({
         Title = "เลือกสิ่งของ",
         Values = initialNames,
-        Value = {},
+        Value = setToList(selectedItems),
         Multi = true,
         SearchBarEnabled = true,
         AllowNone = true,
         Callback = function(value)
+            if restoring then return end
             local list = selectionToList(value)
             if type(value) == "string" and #list == 1 then
                 -- กรณี WindUI ส่งค่ามาทีละตัว -> toggle เอาเอง
@@ -450,13 +533,18 @@ function Item.register(context)
                 selectedItems = {}
                 for _, name in ipairs(list) do selectedItems[name] = true end
             end
+            saveSettings()
         end,
     })
     section:Slider({
         Title = "จำนวนชิ้น",
         Value = {Min = 1, Max = 100, Default = maxAmount},
         Step = 1,
-        Callback = function(value) maxAmount = math.clamp(value, 1, 100) end,
+        Callback = function(value)
+            if restoring then return end
+            maxAmount = math.clamp(value, 1, 100)
+            saveSettings()
+        end,
     })
 
     local PULL_TARGETS = {
@@ -464,7 +552,7 @@ function Item.register(context)
         { Key = "fire",  Label = "บนกองไฟ" },
         { Key = "craft", Label = "โต๊ะคราฟต์" },
     }
-    local pullTarget = "head"
+    local pullTarget = validKey(PULL_TARGETS, savedManual.target) or "head"
 
     getPullTargetPosition = function()
         if pullTarget == "fire" then
@@ -483,12 +571,14 @@ function Item.register(context)
     section:Dropdown({
         Title = "จุดดึงของ",
         Values = targetLabels,
-        Value = targetLabels[1],
+        Value = labelOfKey(PULL_TARGETS, pullTarget),
         AllowNone = false,
         Callback = function(value)
+            if restoring then return end
             for _, t in ipairs(PULL_TARGETS) do
                 if t.Label == value then pullTarget = t.Key end
             end
+            saveSettings()
         end,
     })
 
@@ -611,9 +701,46 @@ function Item.register(context)
         return head and head.Position + Vector3.new(0, 5, 0)
     end
 
+    -- โหลดค่าช่องอัตโนมัติจากไฟล์ (enabled เริ่มเป็น false เสมอ)
+    local autoNameSet = {}
+    for _, name in ipairs(AUTO_ITEM_NAMES) do autoNameSet[name] = true end
+    local savedAuto = type(saved.auto) == "table" and saved.auto or {}
     local autoConfig = {}
     for i = 1, 4 do
-        autoConfig[i] = {enabled = false, running = false, items = {}, target = "head"}
+        local s = type(savedAuto[i]) == "table" and savedAuto[i] or {}
+        autoConfig[i] = {
+            enabled = false,
+            running = false,
+            items = listToSet(s.items, autoNameSet),
+            target = validKey(AUTO_TARGETS, s.target) or "head",
+        }
+    end
+
+    -- เขียนไฟล์ (หน่วง 0.5 วิ รวมการเปลี่ยนหลายครั้งติดกัน เช่น ลาก slider เป็นเขียนครั้งเดียว)
+    saveSettings = function()
+        if restoring or saveQueued then return end
+        if type(writefile) ~= "function" then return end
+        saveQueued = true
+        task.delay(0.5, function()
+            saveQueued = false
+            local data = {
+                manual = {
+                    items = setToList(selectedItems),
+                    amount = maxAmount,
+                    target = pullTarget,
+                },
+                auto = {},
+            }
+            for i = 1, 4 do
+                data.auto[i] = {
+                    items = setToList(autoConfig[i].items),
+                    target = autoConfig[i].target,
+                }
+            end
+            pcall(function()
+                writefile(SETTINGS_FILE, HttpService:JSONEncode(data))
+            end)
+        end)
     end
 
     -- ของที่ดึงไปแล้วห้ามดึงซ้ำตลอดเซสชัน (strong table ไม่พึ่ง GC)
@@ -650,11 +777,12 @@ function Item.register(context)
         autoSection:Dropdown({
             Title = "ของที่จะดึง",
             Values = AUTO_ITEM_NAMES,
-            Value = {},
+            Value = setToList(cfg.items),
             Multi = true,
             SearchBarEnabled = true,
             AllowNone = true,
             Callback = function(value)
+                if restoring then return end
                 local list = selectionToList(value)
                 if type(value) == "string" and #list == 1 then
                     -- WindUI บางครั้งส่ง string แม้ Multi = true -> toggle เอาเอง
@@ -663,17 +791,20 @@ function Item.register(context)
                     cfg.items = {}
                     for _, n in ipairs(list) do cfg.items[n] = true end
                 end
+                saveSettings()
             end,
         })
         autoSection:Dropdown({
             Title = "จุดปล่อย",
             Values = autoTargetLabels,
-            Value = autoTargetLabels[1],
+            Value = labelOfKey(AUTO_TARGETS, cfg.target),
             AllowNone = false,
             Callback = function(value)
+                if restoring then return end
                 for _, t in ipairs(AUTO_TARGETS) do
                     if t.Label == value then cfg.target = t.Key end
                 end
+                saveSettings()
             end,
         })
         autoSection:Toggle({
@@ -689,6 +820,10 @@ function Item.register(context)
             end,
         })
     end
+
+    -- สร้าง UI เสร็จแล้ว ปลดล็อกให้ Callback เริ่มเซฟค่าที่ผู้ใช้เปลี่ยนได้
+    -- (หน่วงนิดหน่อย เผื่อ UI library ยิง Callback ตอนตั้งค่าเริ่มต้นแบบ deferred)
+    task.delay(0.5, function() restoring = false end)
 end
 
 return Item
