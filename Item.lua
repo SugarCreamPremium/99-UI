@@ -1,4 +1,4 @@
--- Version 5.06
+-- Version 11.14
 local Item = {}
 
 function Item.register(context)
@@ -22,7 +22,19 @@ function Item.register(context)
     local HttpService = game:GetService("HttpService")
     -- แยกไฟล์ตาม Username ของแต่ละบัญชี (กันหลายบัญชีบน workspace เดียวกันเขียนทับกัน)
     local safeName = tostring(player and player.Name or "Unknown"):gsub("[^%w_%-]", "_")
-    local SETTINGS_FILE = "ItemPullSettings_" .. safeName .. ".json"
+    local OLD_SETTINGS_FILE = "ItemPullSettings_" .. safeName .. ".json"  -- old location (workspace root), read as a fallback only
+    local SAVE_DIR = "Sugar Hub/99 Night (UI)"
+    local SETTINGS_FILE = SAVE_DIR .. "/" .. OLD_SETTINGS_FILE
+    -- สร้างโฟลเดอร์ "Sugar Hub" และ "Sugar Hub/99 Night (UI)" ใน workspace ถ้ายังไม่มี
+    -- คืน true เมื่อมีโฟลเดอร์แล้ว / false ถ้า executor ไม่มีฟังก์ชันโฟลเดอร์ (ใช้ไฟล์ที่ root แบบเดิมแทน)
+    local function ensureSaveDir()
+        if type(makefolder) ~= "function" or type(isfolder) ~= "function" then return false end
+        local ok = pcall(function()
+            if not isfolder("Sugar Hub") then makefolder("Sugar Hub") end
+            if not isfolder(SAVE_DIR) then makefolder(SAVE_DIR) end
+        end)
+        return ok and isfolder(SAVE_DIR) == true
+    end
     local PLACEHOLDER_NAME = "(ยังไม่มีไอเทม)"
     -- ระหว่างสร้าง UI ห้ามให้ Callback ทับค่าที่โหลดมา (ปลดล็อกท้ายฟังก์ชัน)
     local restoring = true
@@ -32,8 +44,14 @@ function Item.register(context)
     local function loadSettings()
         if type(isfile) ~= "function" or type(readfile) ~= "function" then return {} end
         local ok, data = pcall(function()
-            if not isfile(SETTINGS_FILE) then return nil end
-            return HttpService:JSONDecode(readfile(SETTINGS_FILE))
+            if isfile(SETTINGS_FILE) then
+                return HttpService:JSONDecode(readfile(SETTINGS_FILE))
+            end
+            -- ไฟล์ที่เซฟโดยเวอร์ชันเก่า (อยู่ที่ root ของ workspace)
+            if isfile(OLD_SETTINGS_FILE) then
+                return HttpService:JSONDecode(readfile(OLD_SETTINGS_FILE))
+            end
+            return nil
         end)
         if ok and type(data) == "table" then return data end
         return {}
@@ -738,7 +756,8 @@ function Item.register(context)
                 }
             end
             pcall(function()
-                writefile(SETTINGS_FILE, HttpService:JSONEncode(data))
+                local path = ensureSaveDir() and SETTINGS_FILE or OLD_SETTINGS_FILE
+                writefile(path, HttpService:JSONEncode(data))
             end)
         end)
     end
