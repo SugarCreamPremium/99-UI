@@ -1,4 +1,4 @@
--- Version 5.13
+-- Version 5.59
 local Campfire = {}
 
 function Campfire.register(context)
@@ -995,7 +995,117 @@ function Campfire.register(context)
         end
     end
 
-    local chopSection = tab:Section({Title = "ตัดต้นไม้รอบตัว", Opened = true})
+    -- ============================================
+    -- วาร์ปตัดต้นไม้ (ไล่ตัดทีละต้น เริ่มจากต้นที่ใกล้ตัวผู้เล่นที่สุด)
+    -- ============================================
+    local warpChopEnabled = false
+    local warpChopRunning = false
+
+    local function warpChopLoop()
+        local damageEvent = ReplicatedStorage:FindFirstChild("RemoteEvents")
+            and ReplicatedStorage.RemoteEvents:FindFirstChild("ToolDamageObject")
+        local ownerId = tostring(player.UserId) .. "_" .. player.UserId
+        -- ต้นที่ตัดไม่สำเร็จ (ยิงพลาดติดกัน / ตีครบ 500 ครั้งแล้วยังไม่ล้ม) จะข้ามไป กันวนซ้ำที่ต้นเดิม
+        local skipped = setmetatable({}, {__mode = "k"})
+        local usedFloating = false
+
+        while warpChopEnabled do
+            local hrp = getHRP()
+            local bestAxe = getBestAxe()
+            -- ไม่ทำงานซ้อนกับระบบอัปเกรดกองไฟ (isWorking)
+            if isWorking or not hrp or not bestAxe or not damageEvent then
+                task.wait(0.5)
+            else
+                -- เลือกต้นที่ตัดได้และใกล้ตัวผู้เล่นที่สุด (getTreesSorted เรียงตามระยะจากจุดที่ส่งเข้าไป)
+                local target = nil
+                for _, tree in ipairs(getTreesSorted(hrp.Position, bestAxe)) do
+                    if not skipped[tree] then
+                        target = tree
+                        break
+                    end
+                end
+
+                local treePos = target and resolveTreePos(target)
+                if not target or not treePos then
+                    if target then skipped[target] = true end
+                    task.wait(1)
+                else
+                    -- ลอยเหนือต้นไม้ 30 studs เหมือนระบบอัปเกรดกองไฟ
+                    local cutPos = treePos + Vector3.new(0, 30, 0)
+                    usedFloating = true
+                    if not floatAP or not floatAP.Parent then
+                        hrp.CFrame = CFrame.new(cutPos)
+                        task.wait(0.2)
+                        ensureFloating(cutPos)
+                    else
+                        floatAP.Position = cutPos
+                        hrp.CFrame = CFrame.new(cutPos)
+                    end
+                    task.wait(0.1)
+
+                    local treeParent = target.Parent
+                    local hitCount = 0
+                    local failStreak = 0
+
+                    while warpChopEnabled and not isWorking
+                        and target.Parent == treeParent and not target:GetAttribute("Destroyed") do
+                        local currentAxe = checkAndReequipAxe(bestAxe)
+                        if not currentAxe then break end
+
+                        local curHRP = getHRP()
+                        if not curHRP then break end
+
+                        local dir = math.random(1, 4)
+                        local offset = (dir == 1 and Vector3.new(-3, 0, 0))
+                            or (dir == 2 and Vector3.new(0, 0, -3))
+                            or (dir == 3 and Vector3.new(3, 0, 0))
+                            or Vector3.new(0, 0, 3)
+                        local walkPos = cutPos + offset
+                        if floatAP and floatAP.Parent then
+                            floatAP.Position = walkPos
+                        end
+                        curHRP.CFrame = CFrame.new(walkPos)
+
+                        local success = pcall(function()
+                            damageEvent:InvokeServer(target, currentAxe, ownerId, curHRP.CFrame, false)
+                        end)
+                        if success then
+                            failStreak = 0
+                        else
+                            failStreak = failStreak + 1
+                            if failStreak >= 5 then break end
+                        end
+
+                        task.wait(0.1)
+                        hitCount = hitCount + 1
+                        if hitCount >= 500 then break end
+                    end
+
+                    -- ต้นยังอยู่ แต่หลุดออกจากลูปเพราะพลาด/ครบ 500 ครั้ง -> ข้ามต้นนี้
+                    if warpChopEnabled and not isWorking
+                        and target.Parent == treeParent and not target:GetAttribute("Destroyed") then
+                        skipped[target] = true
+                    end
+                end
+            end
+        end
+
+        -- ปิดสวิตช์: เลิกลอย (ถ้าระบบอัปเกรดกองไฟไม่ได้ใช้อยู่)
+        if usedFloating and not isWorking then
+            disableFloating()
+        end
+        warpChopRunning = false
+    end
+
+    local function setWarpChop(value)
+        warpChopEnabled = value
+        if warpChopEnabled and not warpChopRunning then
+            warpChopRunning = true
+            task.spawn(warpChopLoop)
+        end
+    end
+
+    local chopSection = tab:Section({Title = "ตัดต้นไม้", Opened = true})
     if chopSection then
         chopSection:Toggle({
             Title = "ตัดต้นไม้ (Kill Aura)",
@@ -1008,6 +1118,12 @@ function Campfire.register(context)
             Value = {Min = 5, Max = 80, Default = chopAuraRange},
             Step = 1,
             Callback = function(value) chopAuraRange = math.clamp(value, 5, 100) end,
+        })
+        chopSection:Toggle({
+            Title = "วาร์ปตัดต้นไม้",
+            Desc = "สคริปต์ถือขวานดีสุดให้ แล้ววาร์ปไล่ตัดทีละต้น เริ่มจากต้นที่ใกล้ตัวที่สุด",
+            Value = false,
+            Callback = setWarpChop,
         })
     end
 
