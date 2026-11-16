@@ -1,4 +1,4 @@
--- Version 5.59
+-- Version 6.02
 local Campfire = {}
 
 function Campfire.register(context)
@@ -1121,7 +1121,7 @@ function Campfire.register(context)
         })
         chopSection:Toggle({
             Title = "วาร์ปตัดต้นไม้",
-            Desc = "สคริปต์ถือขวานดีสุดให้ แล้ววาร์ปไล่ตัดทีละต้น เริ่มจากต้นที่ใกล้ตัวที่สุด",
+            Desc = "ถือขวานดีสุดให้ แล้ววาร์ปไล่ตัดทีละต้น เริ่มจากต้นที่ใกล้ตัวที่สุด",
             Value = false,
             Callback = setWarpChop,
         })
