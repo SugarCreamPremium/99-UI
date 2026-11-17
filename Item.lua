@@ -1,4 +1,4 @@
--- Version 11.14
+-- Version 2.54
 local Item = {}
 
 function Item.register(context)
@@ -789,91 +789,66 @@ function Item.register(context)
         cfg.running = false
     end
 
-    -- ช่องดึงอัตโนมัติ 1-4: พับเก็บไว้ก่อน และ Dropdown "ของที่จะดึง" สร้างแบบเบา
-    -- (ใส่เฉพาะของที่เลือกไว้/เซฟไว้) รายการเต็มจาก AUTO_ITEM_NAMES จะเติมเข้าไปตอนกดปุ่ม
-    -- "โหลดรายการของ" ของช่องนั้น -> ช่องที่ไม่ได้ใช้ไม่ต้องเสียเวลาสร้าง UI 188 แถว
-    local restoreToken = 0
-    local function silently(fn)
-        -- ตั้งค่า UI ด้วยโค้ดโดยไม่ให้ Callback เซฟทับ
-        restoring = true
-        restoreToken = restoreToken + 1
-        local token = restoreToken
-        pcall(fn)
-        task.delay(0.5, function()
-            if restoreToken == token then restoring = false end
-        end)
-    end
-
-    for i = 1, 4 do
-        local cfg = autoConfig[i]
-        local autoSection = tab:Section({Title = "ช่องดึงอัตโนมัติ " .. i, Opened = false})
-        if not autoSection then break end
-
-        local itemDropdown, loadButton
-        local loaded = false
-        loadButton = autoSection:Button({
-            Title = "โหลดรายการของ",
-            Desc = "กดเพื่อโหลดรายชื่อของทั้งหมดมาให้เลือก (โหลดเฉพาะช่องนี้ อาจกระตุกสักครู่)",
-            Callback = function()
-                if loaded or not itemDropdown then return end
-                loaded = true
-                silently(function()
-                    -- Refresh สร้างแถวใหม่ทั้งหมดและคงค่าที่เลือกไว้เดิม (Select จะ Refresh ซ้ำอีกรอบ จึงไม่เรียก)
-                    itemDropdown:Refresh(AUTO_ITEM_NAMES)
-                end)
-                pcall(function() loadButton:Destroy() end)
-            end,
-        })
-        itemDropdown = autoSection:Dropdown({
-            Title = "ของที่จะดึง",
-            Values = setToList(cfg.items),
-            Value = setToList(cfg.items),
-            Multi = true,
-            SearchBarEnabled = true,
-            AllowNone = true,
-            Callback = function(value)
-                if restoring then return end
-                local list = selectionToList(value)
-                if type(value) == "string" and #list == 1 then
-                    -- WindUI บางครั้งส่ง string แม้ Multi = true -> toggle เอาเอง
-                    cfg.items[list[1]] = not cfg.items[list[1]] or nil
-                else
-                    cfg.items = {}
-                    for _, n in ipairs(list) do cfg.items[n] = true end
-                end
-                saveSettings()
-            end,
-        })
-        autoSection:Dropdown({
-            Title = "จุดปล่อย",
-            Values = autoTargetLabels,
-            Value = labelOfKey(AUTO_TARGETS, cfg.target),
-            AllowNone = false,
-            Callback = function(value)
-                if restoring then return end
-                for _, t in ipairs(AUTO_TARGETS) do
-                    if t.Label == value then cfg.target = t.Key end
-                end
-                saveSettings()
-            end,
-        })
-        autoSection:Toggle({
-            Title = "เปิดดึงของ",
-            Desc = "ดึงของที่เลือกอัตโนมัติทันทีที่เจอ",
-            Value = false,
-            Callback = function(value)
-                cfg.enabled = value
-                if value and not cfg.running then
-                    cfg.running = true
-                    task.spawn(autoPullLoop, i)
-                end
-            end,
-        })
-    end
-
-    -- สร้าง UI เสร็จแล้ว ปลดล็อกให้ Callback เริ่มเซฟค่าที่ผู้ใช้เปลี่ยนได้
-    -- (หน่วงนิดหน่อย เผื่อ UI library ยิง Callback ตอนตั้งค่าเริ่มต้นแบบ deferred)
-    task.delay(0.5, function() restoring = false end)
+    -- ช่องดึงอัตโนมัติ 1-4: โหลดรายการเต็มทันที แต่สร้างเบื้องหลังหลังฮับเปิดแล้ว ทีละช่อง
+    -- (Dropdown 188 รายการสร้างหนัก จึงเว้นช่วงระหว่างช่อง เพื่อไม่ให้ค้างตอนเปิดฮับ)
+    -- ช่องพับปิดไว้ก่อน และปลดล็อกการเซฟหลังสร้างครบทุกช่อง
+    task.spawn(function()
+        for i = 1, 4 do
+            task.wait(0.3)
+            local cfg = autoConfig[i]
+            local autoSection = tab:Section({Title = "ช่องดึงอัตโนมัติ " .. i, Opened = false})
+            if not autoSection then break end
+            autoSection:Dropdown({
+                Title = "ของที่จะดึง",
+                Values = AUTO_ITEM_NAMES,
+                Value = setToList(cfg.items),
+                Multi = true,
+                SearchBarEnabled = true,
+                AllowNone = true,
+                Callback = function(value)
+                    if restoring then return end
+                    local list = selectionToList(value)
+                    if type(value) == "string" and #list == 1 then
+                        -- WindUI บางครั้งส่ง string แม้ Multi = true -> toggle เอาเอง
+                        cfg.items[list[1]] = not cfg.items[list[1]] or nil
+                    else
+                        cfg.items = {}
+                        for _, n in ipairs(list) do cfg.items[n] = true end
+                    end
+                    saveSettings()
+                end,
+            })
+            autoSection:Dropdown({
+                Title = "จุดปล่อย",
+                Values = autoTargetLabels,
+                Value = labelOfKey(AUTO_TARGETS, cfg.target),
+                AllowNone = false,
+                Callback = function(value)
+                    if restoring then return end
+                    for _, t in ipairs(AUTO_TARGETS) do
+                        if t.Label == value then cfg.target = t.Key end
+                    end
+                    saveSettings()
+                end,
+            })
+            autoSection:Toggle({
+                Title = "เปิดดึงของ",
+                Desc = "ดึงของที่เลือกอัตโนมัติทันทีที่เจอ",
+                Value = false,
+                Callback = function(value)
+                    cfg.enabled = value
+                    if value and not cfg.running then
+                        cfg.running = true
+                        task.spawn(autoPullLoop, i)
+                    end
+                end,
+            })
+        end
+        -- สร้าง UI เสร็จแล้ว ปลดล็อกให้ Callback เริ่มเซฟค่าที่ผู้ใช้เปลี่ยนได้
+        -- (หน่วงนิดหน่อย เผื่อ UI library ยิง Callback ตอนตั้งค่าเริ่มต้นแบบ deferred)
+        task.wait(0.5)
+        restoring = false
+    end)
 end
 
 return Item
