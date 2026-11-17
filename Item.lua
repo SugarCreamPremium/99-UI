@@ -1,4 +1,4 @@
--- Version 3.05
+-- Version 11.14
 local Item = {}
 
 function Item.register(context)
@@ -835,10 +835,9 @@ function Item.register(context)
         end
     end
 
-    -- สร้างเบื้องหลังหลังฮับเปิดแล้ว (การสร้าง Dropdown 188 รายการครั้งเดียวยังหนัก)
-    task.spawn(function()
-        task.wait(0.3)
-        local autoSection = tab:Section({Title = "ช่องดึงอัตโนมัติ", Opened = false})
+    -- สร้างทันทีตอนรันครั้งแรก เหมือนหัวข้ออื่นๆ (Dropdown 188 รายการสร้างครั้งเดียว)
+    do
+        local autoSection = tab:Section({Title = "ช่องดึงอัตโนมัติ", Opened = true})
         if autoSection then
             local autoItemDropdown, autoTargetDropdown
 
@@ -915,9 +914,9 @@ function Item.register(context)
         end
 
         -- สร้าง UI เสร็จแล้ว ปลดล็อกให้ Callback เริ่มเซฟค่าที่ผู้ใช้เปลี่ยนได้
-        task.wait(0.5)
-        restoring = false
-    end)
+        -- (หน่วงนิดหน่อย เผื่อ UI library ยิง Callback ตอนตั้งค่าเริ่มต้นแบบ deferred)
+        task.delay(0.5, function() restoring = false end)
+    end
 end
 
 return Item
