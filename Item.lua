@@ -1,4 +1,4 @@
--- Version 11.14
+-- Version 2.36
 local Item = {}
 
 function Item.register(context)
@@ -789,19 +789,57 @@ function Item.register(context)
         cfg.running = false
     end
 
-    for i = 1, 4 do
-        local cfg = autoConfig[i]
-        local autoSection = tab:Section({Title = "ช่องดึงอัตโนมัติ " .. i, Opened = i == 1})
-        if not autoSection then break end
+    -- ช่องดึงอัตโนมัติ 4 ช่อง ใช้ตัวเลือก "ของ" และ "จุดปล่อย" ชุดเดียว (สร้าง UI ครั้งเดียว)
+    -- รายชื่อของมาจาก AUTO_ITEM_NAMES จุดเดียว ส่วนของที่เลือกเก็บแยกใน autoConfig[i] ของแต่ละช่อง
+    -- เมื่อสลับช่อง จะเปลี่ยนค่าที่แสดงในตัวเลือกให้ตรงกับช่องนั้น
+    local SLOT_LABELS = {}
+    for i = 1, 4 do SLOT_LABELS[i] = "ช่อง " .. i end
+    local editingSlot = 1
+    local switchToken = 0
+
+    -- ตั้งค่า UI ด้วยโค้ด โดยไม่ให้ Callback เซฟทับค่าของช่องอื่น
+    local function applyWithoutSaving(fn)
+        restoring = true
+        switchToken = switchToken + 1
+        local token = switchToken
+        pcall(fn)
+        task.delay(0.5, function()
+            if switchToken == token then restoring = false end
+        end)
+    end
+
+    local autoSection = tab:Section({Title = "ช่องดึงอัตโนมัติ", Opened = true})
+    if autoSection then
+        local autoItemDropdown, autoTargetDropdown
+
         autoSection:Dropdown({
-            Title = "ของที่จะดึง",
+            Title = "เลือกช่องที่จะตั้งค่า",
+            Desc = "ตั้งของและจุดปล่อยแยกกันแต่ละช่อง (เปิด/ปิดดึงของอยู่ด้านล่าง)",
+            Values = SLOT_LABELS,
+            Value = SLOT_LABELS[1],
+            AllowNone = false,
+            Callback = function(value)
+                if type(value) == "table" then value = value[1] end
+                local idx = table.find(SLOT_LABELS, value)
+                if not idx or idx == editingSlot then return end
+                editingSlot = idx
+                local cfg = autoConfig[idx]
+                applyWithoutSaving(function()
+                    if autoItemDropdown then autoItemDropdown:Select(setToList(cfg.items)) end
+                    if autoTargetDropdown then autoTargetDropdown:Select(labelOfKey(AUTO_TARGETS, cfg.target)) end
+                end)
+            end,
+        })
+        autoItemDropdown = autoSection:Dropdown({
+            Title = "ของที่จะดึง (ของช่องที่เลือก)",
             Values = AUTO_ITEM_NAMES,
-            Value = setToList(cfg.items),
+            Value = setToList(autoConfig[1].items),
             Multi = true,
             SearchBarEnabled = true,
             AllowNone = true,
             Callback = function(value)
                 if restoring then return end
+                local cfg = autoConfig[editingSlot]
                 local list = selectionToList(value)
                 if type(value) == "string" and #list == 1 then
                     -- WindUI บางครั้งส่ง string แม้ Multi = true -> toggle เอาเอง
@@ -813,31 +851,36 @@ function Item.register(context)
                 saveSettings()
             end,
         })
-        autoSection:Dropdown({
-            Title = "จุดปล่อย",
+        autoTargetDropdown = autoSection:Dropdown({
+            Title = "จุดปล่อย (ของช่องที่เลือก)",
             Values = autoTargetLabels,
-            Value = labelOfKey(AUTO_TARGETS, cfg.target),
+            Value = labelOfKey(AUTO_TARGETS, autoConfig[1].target),
             AllowNone = false,
             Callback = function(value)
                 if restoring then return end
+                local cfg = autoConfig[editingSlot]
                 for _, t in ipairs(AUTO_TARGETS) do
                     if t.Label == value then cfg.target = t.Key end
                 end
                 saveSettings()
             end,
         })
-        autoSection:Toggle({
-            Title = "เปิดดึงของ",
-            Desc = "ดึงของที่เลือกอัตโนมัติทันทีที่เจอ",
-            Value = false,
-            Callback = function(value)
-                cfg.enabled = value
-                if value and not cfg.running then
-                    cfg.running = true
-                    task.spawn(autoPullLoop, i)
-                end
-            end,
-        })
+
+        for i = 1, 4 do
+            local cfg = autoConfig[i]
+            autoSection:Toggle({
+                Title = "เปิดดึงของ ช่อง " .. i,
+                Desc = "ดึงของที่เลือกไว้ในช่อง " .. i .. " อัตโนมัติทันทีที่เจอ",
+                Value = false,
+                Callback = function(value)
+                    cfg.enabled = value
+                    if value and not cfg.running then
+                        cfg.running = true
+                        task.spawn(autoPullLoop, i)
+                    end
+                end,
+            })
+        end
     end
 
     -- สร้าง UI เสร็จแล้ว ปลดล็อกให้ Callback เริ่มเซฟค่าที่ผู้ใช้เปลี่ยนได้
