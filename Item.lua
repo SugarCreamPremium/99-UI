@@ -1,4 +1,4 @@
--- Version 2.54
+-- Version 3.05
 local Item = {}
 
 function Item.register(context)
@@ -789,24 +789,88 @@ function Item.register(context)
         cfg.running = false
     end
 
-    -- ช่องดึงอัตโนมัติ 1-4: โหลดรายการเต็มทันที แต่สร้างเบื้องหลังหลังฮับเปิดแล้ว ทีละช่อง
-    -- (Dropdown 188 รายการสร้างหนัก จึงเว้นช่วงระหว่างช่อง เพื่อไม่ให้ค้างตอนเปิดฮับ)
-    -- ช่องพับปิดไว้ก่อน และปลดล็อกการเซฟหลังสร้างครบทุกช่อง
+    -- ช่องดึงอัตโนมัติ 4 ช่อง ใช้ตัวเลือก "ของ" และ "จุดปล่อย" ชุดเดียว แล้วสลับไปแก้ทีละช่อง
+    -- รายชื่อมาจาก AUTO_ITEM_NAMES จุดเดียว ส่วนของที่เลือกเก็บแยกใน autoConfig[i] ของแต่ละช่อง
+    -- Dropdown ของ WindUI สร้างทุกแถวใหม่ทุกครั้งที่ Select/Refresh (หนัก) จึงสลับช่องด้วยการ
+    -- แก้ค่าที่เลือก + สีของแถวเดิมโดยตรง ไม่สร้างแถวใหม่ (ถ้าวิธีนี้ใช้ไม่ได้ จะถอยไปใช้ Select)
+    local SLOT_LABELS = {}
+    for i = 1, 4 do SLOT_LABELS[i] = "ช่อง " .. i end
+    local editingSlot = 1
+    local switchToken = 0
+
+    -- ตั้งค่า UI ด้วยโค้ดโดยไม่ให้ Callback เซฟทับค่าของช่องอื่น
+    local function silently(fn)
+        restoring = true
+        switchToken = switchToken + 1
+        local token = switchToken
+        pcall(fn)
+        task.delay(0.5, function()
+            if switchToken == token then restoring = false end
+        end)
+    end
+
+    -- เปลี่ยนรายการที่ติ๊กไว้โดยไม่สร้างแถวใหม่ (ค่าสีตรงกับที่ WindUI ใช้กับแถวที่เลือก/ไม่เลือก)
+    local function fastSelect(dropdown, list)
+        local ok = pcall(function()
+            local tabs = dropdown.Tabs
+            if type(tabs) ~= "table" or next(tabs) == nil then error("no tabs") end
+            local set = {}
+            for _, n in ipairs(list) do set[n] = true end
+            dropdown.Value = list
+            for _, tab in pairs(tabs) do
+                local item = tab.UIElements and tab.UIElements.TabItem
+                if item then
+                    local on = set[tab.Name] == true
+                    tab.Selected = on
+                    item.ImageTransparency = on and 0.67 or 1
+                    local label = item.Frame.Title.TextLabel
+                    label.TextTransparency = on and 0 or 0.4
+                end
+            end
+            dropdown:Display()
+        end)
+        if not ok then
+            -- ทางสำรอง: ช้ากว่า (สร้างแถวใหม่ทั้งหมด) แต่ถูกต้องแน่นอน
+            silently(function() dropdown:Select(list) end)
+        end
+    end
+
+    -- สร้างเบื้องหลังหลังฮับเปิดแล้ว (การสร้าง Dropdown 188 รายการครั้งเดียวยังหนัก)
     task.spawn(function()
-        for i = 1, 4 do
-            task.wait(0.3)
-            local cfg = autoConfig[i]
-            local autoSection = tab:Section({Title = "ช่องดึงอัตโนมัติ " .. i, Opened = false})
-            if not autoSection then break end
+        task.wait(0.3)
+        local autoSection = tab:Section({Title = "ช่องดึงอัตโนมัติ", Opened = false})
+        if autoSection then
+            local autoItemDropdown, autoTargetDropdown
+
             autoSection:Dropdown({
-                Title = "ของที่จะดึง",
+                Title = "เลือกช่องที่จะตั้งค่า",
+                Desc = "ตั้งของและจุดปล่อยแยกกันแต่ละช่อง (ปุ่มเปิดดึงของอยู่ด้านล่าง)",
+                Values = SLOT_LABELS,
+                Value = SLOT_LABELS[1],
+                AllowNone = false,
+                Callback = function(value)
+                    if type(value) == "table" then value = value[1] end
+                    local idx = table.find(SLOT_LABELS, value)
+                    if not idx or idx == editingSlot then return end
+                    editingSlot = idx
+                    local cfg = autoConfig[idx]
+                    if autoItemDropdown then fastSelect(autoItemDropdown, setToList(cfg.items)) end
+                    if autoTargetDropdown then
+                        -- 7 แถว สร้างใหม่ได้เร็ว
+                        silently(function() autoTargetDropdown:Select(labelOfKey(AUTO_TARGETS, cfg.target)) end)
+                    end
+                end,
+            })
+            autoItemDropdown = autoSection:Dropdown({
+                Title = "ของที่จะดึง (ของช่องที่เลือก)",
                 Values = AUTO_ITEM_NAMES,
-                Value = setToList(cfg.items),
+                Value = setToList(autoConfig[1].items),
                 Multi = true,
                 SearchBarEnabled = true,
                 AllowNone = true,
                 Callback = function(value)
                     if restoring then return end
+                    local cfg = autoConfig[editingSlot]
                     local list = selectionToList(value)
                     if type(value) == "string" and #list == 1 then
                         -- WindUI บางครั้งส่ง string แม้ Multi = true -> toggle เอาเอง
@@ -818,34 +882,39 @@ function Item.register(context)
                     saveSettings()
                 end,
             })
-            autoSection:Dropdown({
-                Title = "จุดปล่อย",
+            autoTargetDropdown = autoSection:Dropdown({
+                Title = "จุดปล่อย (ของช่องที่เลือก)",
                 Values = autoTargetLabels,
-                Value = labelOfKey(AUTO_TARGETS, cfg.target),
+                Value = labelOfKey(AUTO_TARGETS, autoConfig[1].target),
                 AllowNone = false,
                 Callback = function(value)
                     if restoring then return end
+                    local cfg = autoConfig[editingSlot]
                     for _, t in ipairs(AUTO_TARGETS) do
                         if t.Label == value then cfg.target = t.Key end
                     end
                     saveSettings()
                 end,
             })
-            autoSection:Toggle({
-                Title = "เปิดดึงของ",
-                Desc = "ดึงของที่เลือกอัตโนมัติทันทีที่เจอ",
-                Value = false,
-                Callback = function(value)
-                    cfg.enabled = value
-                    if value and not cfg.running then
-                        cfg.running = true
-                        task.spawn(autoPullLoop, i)
-                    end
-                end,
-            })
+
+            for i = 1, 4 do
+                local cfg = autoConfig[i]
+                autoSection:Toggle({
+                    Title = "เปิดดึงของ ช่อง " .. i,
+                    Desc = "ดึงของที่เลือกไว้ในช่อง " .. i .. " อัตโนมัติทันทีที่เจอ",
+                    Value = false,
+                    Callback = function(value)
+                        cfg.enabled = value
+                        if value and not cfg.running then
+                            cfg.running = true
+                            task.spawn(autoPullLoop, i)
+                        end
+                    end,
+                })
+            end
         end
+
         -- สร้าง UI เสร็จแล้ว ปลดล็อกให้ Callback เริ่มเซฟค่าที่ผู้ใช้เปลี่ยนได้
-        -- (หน่วงนิดหน่อย เผื่อ UI library ยิง Callback ตอนตั้งค่าเริ่มต้นแบบ deferred)
         task.wait(0.5)
         restoring = false
     end)
