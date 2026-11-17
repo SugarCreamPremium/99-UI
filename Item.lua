@@ -818,8 +818,8 @@ function Item.register(context)
                 if loaded or not itemDropdown then return end
                 loaded = true
                 silently(function()
+                    -- Refresh สร้างแถวใหม่ทั้งหมดและคงค่าที่เลือกไว้เดิม (Select จะ Refresh ซ้ำอีกรอบ จึงไม่เรียก)
                     itemDropdown:Refresh(AUTO_ITEM_NAMES)
-                    itemDropdown:Select(setToList(cfg.items))
                 end)
                 pcall(function() loadButton:Destroy() end)
             end,
